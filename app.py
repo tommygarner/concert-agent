@@ -137,8 +137,12 @@ if user_input:
                         )
                         chat = model.start_chat(enable_automatic_function_calling=True)
                         response = chat.send_message(user_input)
-                        st.markdown(response.text)
-                        st.session_state.messages.append({"role": "assistant", "content": response.text})
+                        
+                        # Clean up any accidental LaTeX formatting from the LLM
+                        clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)
+                        
+                        st.markdown(clean_text)
+                        st.session_state.messages.append({"role": "assistant", "content": clean_text})
                         success = True
                         break
                     except Exception as e:

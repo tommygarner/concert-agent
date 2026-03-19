@@ -132,9 +132,12 @@ def get_venue_details(venue_name: str):
     with open(venue_path, 'r') as f:
         knowledge = json.load(f)
     
-    # Simple keyword match
+    # Flexible matching: remove spaces and special chars for comparison
+    def clean(s): return "".join(filter(str.isalnum, s.lower()))
+    
+    target = clean(venue_name)
     for venue in knowledge:
-        if venue_name.lower() in venue['name'].lower():
+        if target in clean(venue['name']) or clean(venue['name']) in target:
             return (
                 f"--- {venue['name']} Info ---\n"
                 f"🅿️ Parking: {venue['parking']}\n"
