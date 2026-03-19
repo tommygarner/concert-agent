@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from server import core_search_concerts as search_concerts, load_artist_profile
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, load_artist_profile
 
 # Load configuration
 load_dotenv()
@@ -20,21 +20,21 @@ if GEMINI_API_KEY:
 
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
 
-# --- CUSTOM CSS (Tighter & Cleaner) ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: white; }
     .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; border: none; }
     .concert-card { border: 1px solid #444; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white; }
     .match-tag { background-color: #1DB954; color: black; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
-    div[data-testid="stSidebarNav"] { display: none; } /* Clean up sidebar */
-    .st-emotion-cache-16idsys p { font-size: 1.1rem; line-height: 1.5; color: white; } /* Better chat legibility */
+    div[data-testid="stSidebarNav"] { display: none; }
+    .st-emotion-cache-16idsys p { font-size: 1.1rem; line-height: 1.5; color: white; }
     .concert-card span { color: white; }
     .concert-card div { color: #ccc !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR (Consolidated) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("🎸 Settings")
     mode = st.selectbox("Persona", ["My History (Tommy)", "Guest Mode"])
@@ -53,6 +53,8 @@ with st.sidebar:
 
     st.divider()
     st.info(f"📍 City: {CITY}")
+    st.write("---")
+    st.caption("Available Tools: Ticketmaster, Google Maps, Twilio SMS")
 
 # --- MAIN UI ---
 st.title("Austin Concert Agent")
@@ -68,7 +70,7 @@ def get_profile_context():
     return ""
 
 # --- CHAT ENGINE ---
-user_input = st.chat_input("Find concerts for indie artists under $70...")
+user_input = st.chat_input("How far is the Mt. Joy show from my house?")
 
 if user_input:
     with st.chat_message("user"):
@@ -78,37 +80,39 @@ if user_input:
         if not GEMINI_API_KEY:
             st.error("Missing API Key")
         else:
-            with st.spinner("Searching Ticketmaster..."):
+            with st.spinner("Agent is working..."):
                 try:
                     profile_ctx = get_profile_context()
-                    # Updated instructions to stop LaTeX "Math Mode" issues
                     sys_instr = f"""
                     You are a professional Austin Concert Concierge.
                     
-                    USER TASTE (Top Artists): {profile_ctx}
+                    USER TASTE: {profile_ctx}
+                    
+                    TOOLS AVAILABLE:
+                    1. `search_concerts`: Find live shows.
+                    2. `get_distance_to_venue`: Calculate driving time/distance from user's home to a venue address.
+                    3. `send_concert_sms`: Send a text message alert to the user.
                     
                     RULES:
-                    1. ONLY use the `search_concerts` tool for live data.
-                    2. DO NOT use LaTeX or mathematical formatting. 
-                    3. ALWAYS treat dollar signs as plain text (e.g. use '$70' NOT '$ 70 $').
-                    4. Use bullet points for show lists.
-                    5. Provide direct Ticketmaster links.
+                    - Be proactive! If a user asks about a show, check the distance for them.
+                    - If a user asks to be reminded or alerted, use `send_concert_sms`.
+                    - NO LaTeX or math formatting. Treat '$' as plain text.
+                    - Always provide Ticketmaster links.
                     """
                     model = genai.GenerativeModel(
                         model_name='gemini-flash-latest',
-                        tools=[search_concerts],
+                        tools=[search_concerts, get_distance_to_venue, send_concert_sms],
                         system_instruction=sys_instr
                     )
                     chat = model.start_chat(enable_automatic_function_calling=True)
                     response = chat.send_message(user_input)
-                    # Using st.write to handle response safely
                     st.write(response.text)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 st.divider()
 
-# --- STATIC RECOMMENDATIONS (Always Visible) ---
+# --- STATIC RECOMMENDATIONS ---
 st.subheader("🔥 Top Picks for You")
 @st.cache_data(ttl=3600)
 def get_picks(city):
