@@ -33,7 +33,7 @@ def run_concert_agent(user_query, use_history=True):
 
     # 3. Initialize Model with Tool
     model = genai.GenerativeModel(
-        model_name='gemini-1.5-flash-8b',
+        model_name='gemini-2.0-flash-001',
         tools=[search_concerts],
         system_instruction=system_prompt
     )
