@@ -27,7 +27,6 @@ st.markdown("""
     .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; }
     .concert-card { border: 1px solid #333; padding: 15px; border-radius: 10px; margin-bottom: 10px; background-color: #1a1c24; }
     .match-tag { background-color: #1DB954; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em; }
-    .chat-bubble { background-color: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #1DB954; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -45,40 +44,44 @@ def get_profile_context():
     return "No history found."
 
 # --- CHAT INTERFACE ---
-st.subheader("🤖 Chat with your Agent")
-user_input = st.text_input("Ask something like: 'Any shows this weekend for my top artists?' or 'Find indie concerts under $50'")
+st.subheader("🤖 Ask your Concert Agent")
+user_input = st.chat_input("Ask: 'Any shows this weekend?' or 'Find indie concerts under $50'")
 
 if user_input:
     if not GEMINI_API_KEY:
         st.error("Please add your GEMINI_API_KEY to secrets/.env")
     else:
-        with st.spinner("Agent is thinking and searching..."):
-            try:
-                profile_context = get_profile_context()
-                system_instruction = f"""
-                You are the Austin Concert Agent. You have access to the user's 10-year Spotify streaming history.
-                
-                USER'S TOP ARTISTS:
-                {profile_context}
-                
-                YOUR CAPABILITIES:
-                1. You can search for live concerts in Austin using the `search_concerts` tool.
-                2. You can and SHOULD talk about the user's most listened-to artists.
-                3. When a user asks about their history or for recommendations, refer to the TOP ARTISTS list provided above.
-                
-                Example: "Based on your history, your #1 artist is Wild Rivers, and they happen to be playing at Stubb's next month!"
-                """
-                model = genai.GenerativeModel(
-                    model_name='gemini-1.5-flash',
-                    tools=[search_concerts],
-                    system_instruction=system_instruction
-                )
-                chat = model.start_chat(enable_automatic_function_calling=True)
-                response = chat.send_message(user_input)
-                
-                st.markdown(f'<div class="chat-bubble">{response.text}</div>', unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"Error: {e}")
+        # Display user message
+        with st.chat_message("user"):
+            st.write(user_input)
+            
+        # Display assistant response
+        with st.chat_message("assistant"):
+            with st.spinner("Searching Ticketmaster..."):
+                try:
+                    profile_context = get_profile_context()
+                    system_instruction = f"""
+                    You are the Austin Concert Agent. Your ONLY job is to help the user find live music events in Austin.
+                    
+                    USER'S PREFERRED ARTISTS (for ranking context):
+                    {profile_context}
+                    
+                    GUIDELINES:
+                    1. Use the `search_concerts` tool to find live data.
+                    2. If you find a show for one of the preferred artists, highlight it!
+                    3. Do not discuss personal history details unless they relate to a concert recommendation.
+                    4. Keep your output professional, readable, and focused on ticket links.
+                    """
+                    model = genai.GenerativeModel(
+                        model_name='gemini-1.5-flash',
+                        tools=[search_concerts],
+                        system_instruction=system_instruction
+                    )
+                    chat = model.start_chat(enable_automatic_function_calling=True)
+                    response = chat.send_message(user_input)
+                    st.write(response.text)
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 st.divider()
 
