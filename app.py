@@ -60,7 +60,7 @@ if user_input:
                 Use search_concerts to find live shows. Be concise.
                 """
                 model = genai.GenerativeModel(
-                    model_name='gemini-2.0-flash-001',
+                    model_name='gemini-1.5-flash',
                     tools=[search_concerts],
                     system_instruction=system_instruction
                 )
