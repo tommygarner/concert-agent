@@ -25,10 +25,12 @@ st.markdown("""
     <style>
     .main { background-color: #0e1117; color: white; }
     .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; border: none; }
-    .concert-card { border: 1px solid #333; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; }
+    .concert-card { border: 1px solid #444; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white; }
     .match-tag { background-color: #1DB954; color: black; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
     div[data-testid="stSidebarNav"] { display: none; } /* Clean up sidebar */
-    .st-emotion-cache-16idsys p { font-size: 1.1rem; line-height: 1.5; } /* Better chat legibility */
+    .st-emotion-cache-16idsys p { font-size: 1.1rem; line-height: 1.5; color: white; } /* Better chat legibility */
+    .concert-card span { color: white; }
+    .concert-card div { color: #ccc !important; }
     </style>
     """, unsafe_allow_html=True)
 
