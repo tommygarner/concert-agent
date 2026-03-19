@@ -84,19 +84,20 @@ def get_distance_to_venue(venue_address: str):
     Calculate the travel time and distance from the user's HOME_ADDRESS to a venue.
     Example: get_distance_to_venue("912 Red River St, Austin, TX")
     """
+    current_home = os.getenv("HOME_ADDRESS", "Austin, TX")
     if not GMAPS_KEY or "your_" in GMAPS_KEY:
         return "Google Maps API key not configured."
     
     try:
         gmaps = googlemaps.Client(key=GMAPS_KEY)
-        result = gmaps.distance_matrix(HOME_ADDRESS, venue_address, mode="driving")
+        result = gmaps.distance_matrix(current_home, venue_address, mode="driving")
         
         if result['status'] == 'OK':
             element = result['rows'][0]['elements'][0]
             if element['status'] == 'OK':
                 distance = element['distance']['text']
                 duration = element['duration']['text']
-                return f"Distance: {distance}, Travel Time: {duration} from your home ({HOME_ADDRESS})."
+                return f"Distance: {distance}, Travel Time: {duration} from your home ({current_home})."
         return "Could not calculate distance."
     except Exception as e:
         return f"Error calculating distance: {str(e)}"

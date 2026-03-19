@@ -60,6 +60,11 @@ with st.sidebar:
 
     st.divider()
     st.info(f"📍 City: {CITY}")
+    
+    # Dynamic Address Input
+    user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "Austin, TX"))
+    os.environ["HOME_ADDRESS"] = user_addr # Update for the tools
+    
     st.write("---")
     st.caption("Available Tools: Ticketmaster, Google Maps, Twilio SMS")
 
