@@ -29,20 +29,26 @@ if "query_made" not in st.session_state:
 # --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Main area text white */
-    .main .stMarkdown, .main p, .main span { color: white !important; }
-    .stChatMessage p { color: white !important; }
+    /* Light theme background */
+    .main { background-color: white !important; color: black !important; }
+    
+    /* All text in main area black */
+    .main .stMarkdown, .main p, .main span, .main label, .main div { color: black !important; }
+    .stChatMessage p { color: black !important; }
     
     /* Sidebar text black */
     [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label { 
         color: black !important; 
     }
     
-    .concert-card { border: 1px solid #444; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white !important; }
+    /* Concert cards stay dark for contrast */
+    .concert-card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white !important; }
+    .concert-card span { color: white !important; }
+    .concert-card div { color: #ccc !important; }
+    .concert-card b, .concert-card strong { color: white !important; }
+    
     .match-tag { background-color: #1DB954; color: black !important; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
     div[data-testid="stSidebarNav"] { display: none; }
-    .concert-card span, .concert-card div { color: #ccc !important; }
-    .concert-card b, .concert-card strong { color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
