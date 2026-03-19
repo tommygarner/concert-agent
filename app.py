@@ -5,11 +5,18 @@ import os
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+import google.generativeai as genai
+from server import search_concerts, load_artist_profile
 
-# Load env but prioritize Streamlit Secrets for cloud hosting
+# Load configuration
 load_dotenv()
 TICKETMASTER_API_KEY = st.secrets.get("TICKETMASTER_API_KEY", os.getenv("TICKETMASTER_API_KEY"))
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
 CITY = os.getenv("CITY", "Austin")
+
+# Configure Gemini
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
 
@@ -20,11 +27,51 @@ st.markdown("""
     .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; }
     .concert-card { border: 1px solid #333; padding: 15px; border-radius: 10px; margin-bottom: 10px; background-color: #1a1c24; }
     .match-tag { background-color: #1DB954; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em; }
+    .chat-bubble { background-color: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #1DB954; }
     </style>
-    """, unsafe_allow_index=True)
+    """, unsafe_allow_html=True)
 
 st.title("🎸 Austin Concert Agent")
 st.markdown("### Personalized Show Discovery powered by 10 Years of Streaming History")
+
+# --- PROFILE HANDLING ---
+def get_profile_context():
+    if Path("data/artist_profile.json").exists():
+        with open("data/artist_profile.json", "r") as f:
+            data = json.load(f)
+            # Just top 20 for context
+            top = sorted(data, key=lambda x: x['weighted_score'], reverse=True)[:20]
+            return ", ".join([f"{a['artist']}" for a in top])
+    return "No history found."
+
+# --- CHAT INTERFACE ---
+st.subheader("🤖 Chat with your Agent")
+user_input = st.text_input("Ask something like: 'Any shows this weekend for my top artists?' or 'Find indie concerts under $50'")
+
+if user_input:
+    if not GEMINI_API_KEY:
+        st.error("Please add your GEMINI_API_KEY to secrets/.env")
+    else:
+        with st.spinner("Agent is thinking and searching..."):
+            try:
+                profile_context = get_profile_context()
+                system_instruction = f"""
+                You are the Austin Concert Agent. User's top artists: {profile_context}.
+                Use search_concerts to find live shows. Be concise.
+                """
+                model = genai.GenerativeModel(
+                    model_name='gemini-1.5-flash',
+                    tools=[search_concerts],
+                    system_instruction=system_instruction
+                )
+                chat = model.start_chat(enable_automatic_function_calling=True)
+                response = chat.send_message(user_input)
+                
+                st.markdown(f'<div class="chat-bubble">{response.text}</div>', unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+st.divider()
 
 # --- SIDEBAR: Profile Selection ---
 with st.sidebar:
@@ -45,18 +92,18 @@ with st.sidebar:
             st.warning("Profile not found. Defaulting to empty.")
             profile = {}
 
-# --- SEARCH LOGIC ---
+# --- STATIC RANKING (Backup) ---
 @st.cache_data(ttl=3600)
-def get_concerts(city):
+def get_static_concerts(city):
     if not TICKETMASTER_API_KEY:
         return []
     url = f"https://app.ticketmaster.com/discovery/v2/events.json?apikey={TICKETMASTER_API_KEY}&city={city}&classificationName=music&size=100&sort=date,asc"
     resp = requests.get(url).json()
     return resp.get("_embedded", {}).get("events", [])
 
-events = get_concerts(CITY)
+st.subheader("🔥 Top Recommendations for You")
+events = get_static_concerts(CITY)
 
-# --- RANKING ---
 ranked_events = []
 for e in events:
     name = e['name']
@@ -79,9 +126,6 @@ for e in events:
 
 ranked_events.sort(key=lambda x: x['score'], reverse=True)
 
-# --- DISPLAY ---
-st.write(f"Showing top results for **{CITY}**:")
-
 for event in ranked_events[:10]:
     with st.container():
         st.markdown(f"""
@@ -93,7 +137,4 @@ for event in ranked_events[:10]:
             <div style="color: #888; margin-top: 5px;">📍 {event['venue']} | 📅 {event['date']}</div>
             <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.9em;">Get Tickets →</a>
         </div>
-        """, unsafe_allow_index=True)
-
-if not ranked_events:
-    st.info("No concerts found. Check your API key!")
+        """, unsafe_allow_html=True)
