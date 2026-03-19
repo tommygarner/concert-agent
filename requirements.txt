@@ -1,6 +1,6 @@
-spotipy
 pandas
-requests
-google-genai
-streamlit
 python-dotenv
+requests
+fastmcp
+tqdm
+rich

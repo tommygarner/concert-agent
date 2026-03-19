@@ -1,6 +1,6 @@
 .env
+my_spotify_data/
 __pycache__/
-*.db
-.gemini/
-.streamlit/
-.cache
+.venv/
+.claude/
+data/artist_profile.json
