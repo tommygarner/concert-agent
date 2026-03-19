@@ -56,8 +56,17 @@ if user_input:
             try:
                 profile_context = get_profile_context()
                 system_instruction = f"""
-                You are the Austin Concert Agent. User's top artists: {profile_context}.
-                Use search_concerts to find live shows. Be concise.
+                You are the Austin Concert Agent. You have access to the user's 10-year Spotify streaming history.
+                
+                USER'S TOP ARTISTS:
+                {profile_context}
+                
+                YOUR CAPABILITIES:
+                1. You can search for live concerts in Austin using the `search_concerts` tool.
+                2. You can and SHOULD talk about the user's most listened-to artists.
+                3. When a user asks about their history or for recommendations, refer to the TOP ARTISTS list provided above.
+                
+                Example: "Based on your history, your #1 artist is Wild Rivers, and they happen to be playing at Stubb's next month!"
                 """
                 model = genai.GenerativeModel(
                     model_name='gemini-1.5-flash',
