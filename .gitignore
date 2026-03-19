@@ -3,4 +3,3 @@ my_spotify_data/
 __pycache__/
 .venv/
 .claude/
-data/artist_profile.json
