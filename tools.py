@@ -118,3 +118,28 @@ def send_concert_sms(message: str):
         return f"SMS sent successfully! SID: {msg.sid}"
     except Exception as e:
         return f"Error sending SMS: {str(e)}"
+
+def get_venue_details(venue_name: str):
+    """
+    Look up insider details about an Austin music venue (parking, age limits, vibe, etc.).
+    Example: get_venue_details("Stubb's")
+    """
+    venue_path = Path("data/venue_knowledge.json")
+    if not venue_path.exists():
+        return "Venue knowledge base not found."
+    
+    with open(venue_path, 'r') as f:
+        knowledge = json.load(f)
+    
+    # Simple keyword match
+    for venue in knowledge:
+        if venue_name.lower() in venue['name'].lower():
+            return (
+                f"--- {venue['name']} Info ---\n"
+                f"🅿️ Parking: {venue['parking']}\n"
+                f"🔞 Age Limit: {venue['age_limit']}\n"
+                f"🎸 Vibe: {venue['vibe']}\n"
+                f"💡 Tips: {venue['tips']}"
+            )
+    
+    return f"No specific insider info found for '{venue_name}'. Try asking for Mohawk, Stubb's, Emo's, Moody Center, Empire, or Scoot Inn."

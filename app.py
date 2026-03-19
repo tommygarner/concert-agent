@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, load_artist_profile
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, load_artist_profile
 
 # Load configuration
 load_dotenv()
@@ -92,16 +92,17 @@ if user_input:
                     1. `search_concerts`: Find live shows.
                     2. `get_distance_to_venue`: Calculate driving time/distance from user's home to a venue address.
                     3. `send_concert_sms`: Send a text message alert to the user.
+                    4. `get_venue_details`: Get insider info (parking, age limits, vibe) for an Austin venue.
                     
                     RULES:
-                    - Be proactive! If a user asks about a show, check the distance for them.
+                    - Be proactive! If a user asks about a show, check the distance AND provide venue insider info (`get_venue_details`).
                     - If a user asks to be reminded or alerted, use `send_concert_sms`.
                     - NO LaTeX or math formatting. Treat '$' as plain text.
                     - Always provide Ticketmaster links.
                     """
                     model = genai.GenerativeModel(
                         model_name='gemini-flash-latest',
-                        tools=[search_concerts, get_distance_to_venue, send_concert_sms],
+                        tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details],
                         system_instruction=sys_instr
                     )
                     chat = model.start_chat(enable_automatic_function_calling=True)
