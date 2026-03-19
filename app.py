@@ -73,7 +73,7 @@ if user_input:
                     4. Keep your output professional, readable, and focused on ticket links.
                     """
                     model = genai.GenerativeModel(
-                        model_name='gemini-1.5-flash',
+                        model_name='gemini-flash-latest',
                         tools=[search_concerts],
                         system_instruction=system_instruction
                     )
