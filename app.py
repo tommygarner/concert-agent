@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, load_artist_profile
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile
 
 # Load configuration
 load_dotenv()
@@ -21,6 +21,11 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
+
+# --- CACHED SCRAPER ---
+@st.cache_data(ttl=21600) # 6 hour cache
+def get_cached_small_venue_data(venue_name):
+    return search_small_venue_calendar(venue_name)
 
 # --- SESSION STATE ---
 if "messages" not in st.session_state:
@@ -74,7 +79,7 @@ with st.sidebar:
         st.rerun()
 
     st.write("---")
-    st.caption("Tools: Ticketmaster, Maps, Twilio, Venue RAG")
+    st.caption("Tools: Ticketmaster, Maps, Twilio, Venue RAG, Showlist Austin")
 
 # --- MAIN UI ---
 st.title("Austin Concert Agent")
@@ -95,8 +100,8 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- CHAT ENGINE (Self-Healing Fallback with Countdown) ---
-user_input = st.chat_input("What should I know about Spider House Ballroom?")
+# --- CHAT ENGINE ---
+user_input = st.chat_input("What's happening at Mohawk this week?")
 
 if user_input:
     st.session_state.query_made = True
@@ -113,34 +118,38 @@ if user_input:
                 sys_instr = f"""
                 You are a professional Austin Concert Concierge.
                 USER TASTE: {profile_ctx}
-                TOOLS: `search_concerts`, `get_distance_to_venue`, `send_concert_sms`, `get_venue_details`.
-                RULES: Be proactive with distances and venue info. NO LaTeX.
+                
+                TOOLS: 
+                1. `search_concerts`: Major tours (Ticketmaster).
+                2. `search_small_venue_calendar`: Local/indie shows (Showlist Austin).
+                3. `get_distance_to_venue`: Maps travel time.
+                4. `get_venue_details`: Insider parking/vibe info.
+                
+                RULES: 
+                - If a user asks for a specific small venue (like Mohawk, Hole in the Wall, Vegas), use `search_small_venue_calendar`.
+                - If Ticketmaster returns nothing, try `search_small_venue_calendar` as a backup.
+                - Be proactive with distances. NO LaTeX.
                 """
                 
-                # Verified list of models for your account
-                models_to_try = [
-                    'gemini-2.0-flash', 
-                    'gemini-2.0-flash-lite-001', 
-                    'gemini-pro-latest', 
-                    'gemini-flash-latest',
-                    'gemini-2.5-flash'
-                ]
+                models_to_try = ['gemini-2.0-flash', 'gemini-2.0-flash-lite-001', 'gemini-pro-latest', 'gemini-flash-latest']
                 success = False
                 retry_wait = 0
                 
                 for model_name in models_to_try:
                     try:
+                        # Wrap the scraper tool to use Streamlit caching
+                        def cached_small_venue_tool(venue_name: str):
+                            return get_cached_small_venue_data(venue_name)
+
                         model = genai.GenerativeModel(
                             model_name=model_name,
-                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details],
+                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool],
                             system_instruction=sys_instr
                         )
                         chat = model.start_chat(enable_automatic_function_calling=True)
                         response = chat.send_message(user_input)
                         
-                        # Clean up any accidental LaTeX formatting from the LLM
                         clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)
-                        
                         st.markdown(clean_text)
                         st.session_state.messages.append({"role": "assistant", "content": clean_text})
                         success = True
@@ -148,13 +157,10 @@ if user_input:
                     except Exception as e:
                         err_str = str(e)
                         if "429" in err_str or "quota" in err_str.lower():
-                            # Try to parse the retry delay (e.g., "retry in 47.13s")
                             match = re.search(r"retry in (\d+\.?\d*)s", err_str)
-                            if match:
-                                retry_wait = max(retry_wait, float(match.group(1)))
+                            if match: retry_wait = max(retry_wait, float(match.group(1)))
                             continue
-                        elif "404" in err_str:
-                            continue
+                        elif "404" in err_str: continue
                         else:
                             st.error(f"Error: {e}")
                             break
