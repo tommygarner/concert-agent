@@ -20,133 +20,127 @@ if GEMINI_API_KEY:
 
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (Tighter & Cleaner) ---
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: white; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; }
-    .concert-card { border: 1px solid #333; padding: 15px; border-radius: 10px; margin-bottom: 10px; background-color: #1a1c24; }
-    .match-tag { background-color: #1DB954; color: black; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; border: none; }
+    .concert-card { border: 1px solid #333; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; }
+    .match-tag { background-color: #1DB954; color: black; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
+    div[data-testid="stSidebarNav"] { display: none; } /* Clean up sidebar */
+    .st-emotion-cache-16idsys p { font-size: 1.1rem; line-height: 1.5; } /* Better chat legibility */
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎸 Austin Concert Agent")
-st.markdown("### Personalized Show Discovery powered by 10 Years of Streaming History")
+# --- SIDEBAR (Consolidated) ---
+with st.sidebar:
+    st.title("🎸 Settings")
+    mode = st.selectbox("Persona", ["My History (Tommy)", "Guest Mode"])
+    
+    if mode == "Guest Mode":
+        guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
+        profile = {a.strip().lower(): 100.0 for a in guest_artists.split(",")}
+    else:
+        if Path("data/artist_profile.json").exists():
+            with open("data/artist_profile.json", "r") as f:
+                data = json.load(f)
+                profile = {item['artist'].lower(): item['weighted_score'] for item in data}
+            st.success("Loaded 10-year History")
+        else:
+            profile = {}
 
-# --- PROFILE HANDLING ---
+    st.divider()
+    st.info(f"📍 City: {CITY}")
+
+# --- MAIN UI ---
+st.title("Austin Concert Agent")
+st.markdown("##### Personalized Discovery via 10-Year Streaming History")
+
+# --- PROFILE CONTEXT ---
 def get_profile_context():
     if Path("data/artist_profile.json").exists():
         with open("data/artist_profile.json", "r") as f:
             data = json.load(f)
-            # Just top 20 for context
             top = sorted(data, key=lambda x: x['weighted_score'], reverse=True)[:20]
             return ", ".join([f"{a['artist']}" for a in top])
-    return "No history found."
+    return ""
 
-# --- CHAT INTERFACE ---
-st.subheader("🤖 Ask your Concert Agent")
-user_input = st.chat_input("Ask: 'Any shows this weekend?' or 'Find indie concerts under $50'")
+# --- CHAT ENGINE ---
+user_input = st.chat_input("Find concerts for indie artists under $70...")
 
 if user_input:
-    if not GEMINI_API_KEY:
-        st.error("Please add your GEMINI_API_KEY to secrets/.env")
-    else:
-        # Display user message
-        with st.chat_message("user"):
-            st.write(user_input)
+    with st.chat_message("user"):
+        st.markdown(user_input)
             
-        # Display assistant response
-        with st.chat_message("assistant"):
+    with st.chat_message("assistant"):
+        if not GEMINI_API_KEY:
+            st.error("Missing API Key")
+        else:
             with st.spinner("Searching Ticketmaster..."):
                 try:
-                    profile_context = get_profile_context()
-                    system_instruction = f"""
-                    You are the Austin Concert Agent. Your ONLY job is to help the user find live music events in Austin.
+                    profile_ctx = get_profile_context()
+                    # Updated instructions to stop LaTeX "Math Mode" issues
+                    sys_instr = f"""
+                    You are a professional Austin Concert Concierge.
                     
-                    USER'S PREFERRED ARTISTS (for ranking context):
-                    {profile_context}
+                    USER TASTE (Top Artists): {profile_ctx}
                     
-                    GUIDELINES:
-                    1. Use the `search_concerts` tool to find live data.
-                    2. If you find a show for one of the preferred artists, highlight it!
-                    3. Do not discuss personal history details unless they relate to a concert recommendation.
-                    4. Keep your output professional, readable, and focused on ticket links.
+                    RULES:
+                    1. ONLY use the `search_concerts` tool for live data.
+                    2. DO NOT use LaTeX or mathematical formatting. 
+                    3. ALWAYS treat dollar signs as plain text (e.g. use '$70' NOT '$ 70 $').
+                    4. Use bullet points for show lists.
+                    5. Provide direct Ticketmaster links.
                     """
                     model = genai.GenerativeModel(
                         model_name='gemini-flash-latest',
                         tools=[search_concerts],
-                        system_instruction=system_instruction
+                        system_instruction=sys_instr
                     )
                     chat = model.start_chat(enable_automatic_function_calling=True)
                     response = chat.send_message(user_input)
+                    # Using st.write to handle response safely
                     st.write(response.text)
                 except Exception as e:
                     st.error(f"Error: {e}")
 
 st.divider()
 
-# --- SIDEBAR: Profile Selection ---
-with st.sidebar:
-    st.header("Settings")
-    mode = st.radio("Persona", ["My History (Tommy)", "Guest Mode (Test it yourself)"])
-    
-    if mode == "Guest Mode (Test it yourself)":
-        guest_artists = st.text_input("Enter 3 favorite artists (comma separated)", "Radiohead, Khruangbin, Leon Bridges")
-        profile = {a.strip().lower(): 100.0 for a in guest_artists.split(",")}
-    else:
-        # Load the Tommy profile we generated
-        if Path("data/artist_profile.json").exists():
-            with open("data/artist_profile.json", "r") as f:
-                data = json.load(f)
-                profile = {item['artist'].lower(): item['weighted_score'] for item in data}
-            st.success("Loaded 10-year Spotify history!")
-        else:
-            st.warning("Profile not found. Defaulting to empty.")
-            profile = {}
-
-# --- STATIC RANKING (Backup) ---
+# --- STATIC RECOMMENDATIONS (Always Visible) ---
+st.subheader("🔥 Top Picks for You")
 @st.cache_data(ttl=3600)
-def get_static_concerts(city):
-    if not TICKETMASTER_API_KEY:
-        return []
-    url = f"https://app.ticketmaster.com/discovery/v2/events.json?apikey={TICKETMASTER_API_KEY}&city={city}&classificationName=music&size=100&sort=date,asc"
-    resp = requests.get(url).json()
-    return resp.get("_embedded", {}).get("events", [])
+def get_picks(city):
+    if not TICKETMASTER_API_KEY: return []
+    try:
+        url = f"https://app.ticketmaster.com/discovery/v2/events.json?apikey={TICKETMASTER_API_KEY}&city={city}&classificationName=music&size=50&sort=date,asc"
+        return requests.get(url).json().get("_embedded", {}).get("events", [])
+    except: return []
 
-st.subheader("🔥 Top Recommendations for You")
-events = get_static_concerts(CITY)
-
-ranked_events = []
+events = get_picks(CITY)
+ranked = []
 for e in events:
-    name = e['name']
     score = 0
-    matched_artist = None
-    for artist, weight in profile.items():
-        if artist in name.lower():
-            score = weight
-            matched_artist = artist
-            break
-    
-    ranked_events.append({
-        "name": name,
-        "venue": e['_embedded']['venues'][0]['name'],
+    name = e['name']
+    for art, w in profile.items():
+        if art in name.lower(): score = w; break
+    ranked.append({
+        "name": name, "venue": e['_embedded']['venues'][0]['name'],
         "date": e['dates']['start'].get('localDate', 'TBD'),
-        "url": e['url'],
-        "score": score,
-        "matched": matched_artist
+        "url": e['url'], "score": score
     })
 
-ranked_events.sort(key=lambda x: x['score'], reverse=True)
+ranked.sort(key=lambda x: x['score'], reverse=True)
 
-for event in ranked_events[:10]:
-    with st.container():
+cols = st.columns(2)
+for i, event in enumerate(ranked[:6]):
+    with cols[i % 2]:
         st.markdown(f"""
         <div class="concert-card">
             <div style="display: flex; justify-content: space-between;">
-                <span style="font-size: 1.2em; font-weight: bold;">{event['name']}</span>
-                {"<span class='match-tag'>🔥 HIGH MATCH</span>" if event['score'] > 50 else ""}
+                <span style="font-size: 1em; font-weight: bold;">{event['name']}</span>
+                {"<span class='match-tag'>MATCH</span>" if event['score'] > 0 else ""}
             </div>
-            <div style="color: #888; margin-top: 5px;">📍 {event['venue']} | 📅 {event['date']}</div>
-            <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.9em;">Get Tickets →</a>
+            <div style="color: #888; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}</div>
+            <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>
         </div>
         """, unsafe_allow_html=True)
