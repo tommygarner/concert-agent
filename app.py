@@ -124,7 +124,7 @@ if user_input:
                     RULES: Be proactive with distances and venue info. NO LaTeX.
                     """
                     model = genai.GenerativeModel(
-                        model_name='gemini-2.0-flash-lite-001',
+                        model_name='gemini-1.5-pro',
                         tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details],
                         system_instruction=sys_instr
                     )
