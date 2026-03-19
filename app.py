@@ -62,7 +62,7 @@ with st.sidebar:
     st.info(f"📍 City: {CITY}")
     
     # Dynamic Address Input
-    user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "Austin, TX"))
+    user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
     os.environ["HOME_ADDRESS"] = user_addr # Update for the tools
     
     st.write("---")
