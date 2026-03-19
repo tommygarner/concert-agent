@@ -29,24 +29,16 @@ if "query_made" not in st.session_state:
 # --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Light theme background */
     .main { background-color: white !important; color: black !important; }
-    
-    /* All text in main area black */
     .main .stMarkdown, .main p, .main span, .main label, .main div { color: black !important; }
     .stChatMessage p { color: black !important; }
-    
-    /* Sidebar text black */
     [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label { 
         color: black !important; 
     }
-    
-    /* Concert cards stay dark for contrast */
     .concert-card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white !important; }
     .concert-card span { color: white !important; }
     .concert-card div { color: #ccc !important; }
     .concert-card b, .concert-card strong { color: white !important; }
-    
     .match-tag { background-color: #1DB954; color: black !important; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
     div[data-testid="stSidebarNav"] { display: none; }
     </style>
@@ -101,7 +93,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- CHAT ENGINE ---
+# --- CHAT ENGINE (Self-Healing Fallback) ---
 user_input = st.chat_input("How far is the Mt. Joy show from my house?")
 
 if user_input:
@@ -115,27 +107,42 @@ if user_input:
             st.error("Missing API Key")
         else:
             with st.spinner("Agent is working..."):
-                try:
-                    profile_ctx = get_profile_context()
-                    sys_instr = f"""
-                    You are a professional Austin Concert Concierge.
-                    USER TASTE: {profile_ctx}
-                    TOOLS: `search_concerts`, `get_distance_to_venue`, `send_concert_sms`, `get_venue_details`.
-                    RULES: Be proactive with distances and venue info. NO LaTeX.
-                    """
-                    model = genai.GenerativeModel(
-                        model_name='gemini-pro-latest',
-                        tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details],
-                        system_instruction=sys_instr
-                    )
-                    chat = model.start_chat(enable_automatic_function_calling=True)
-                    response = chat.send_message(user_input)
-                    st.markdown(response.text)
-                    st.session_state.messages.append({"role": "assistant", "content": response.text})
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                profile_ctx = get_profile_context()
+                sys_instr = f"""
+                You are a professional Austin Concert Concierge.
+                USER TASTE: {profile_ctx}
+                TOOLS: `search_concerts`, `get_distance_to_venue`, `send_concert_sms`, `get_venue_details`.
+                RULES: Be proactive with distances and venue info. NO LaTeX.
+                """
+                
+                # List of models to try in order of preference
+                models_to_try = ['gemini-2.0-flash', 'gemini-2.0-flash-lite-001', 'gemini-pro-latest']
+                success = False
+                
+                for model_name in models_to_try:
+                    try:
+                        model = genai.GenerativeModel(
+                            model_name=model_name,
+                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details],
+                            system_instruction=sys_instr
+                        )
+                        chat = model.start_chat(enable_automatic_function_calling=True)
+                        response = chat.send_message(user_input)
+                        st.markdown(response.text)
+                        st.session_state.messages.append({"role": "assistant", "content": response.text})
+                        success = True
+                        break
+                    except Exception as e:
+                        if "429" in str(e) or "404" in str(e):
+                            continue # Try next model
+                        else:
+                            st.error(f"Error: {e}")
+                            break
+                
+                if not success:
+                    st.error("All available models are currently at their quota limit. Please try again in a few minutes.")
 
-# --- STATIC RECOMMENDATIONS (Only visible before first query) ---
+# --- STATIC RECOMMENDATIONS ---
 if not st.session_state.query_made:
     st.divider()
     st.subheader("🔥 Top Picks for You")
