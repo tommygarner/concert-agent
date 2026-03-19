@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from server import search_concerts, load_artist_profile
+from server import core_search_concerts as search_concerts, load_artist_profile
 
 # Load configuration
 load_dotenv()

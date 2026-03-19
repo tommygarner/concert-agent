@@ -2,13 +2,9 @@ import os
 import json
 import requests
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
 from pathlib import Path
 
 load_dotenv()
-
-# Initialize FastMCP
-mcp = FastMCP("Austin Concert Agent")
 
 # Config
 TICKETMASTER_API_KEY = os.getenv("TICKETMASTER_API_KEY")
@@ -21,16 +17,12 @@ def load_artist_profile():
         return {}
     with open(PROFILE_PATH, 'r') as f:
         data = json.load(f)
-        # Return a dict for O(1) lookups: {artist_name: weighted_score}
         return {item['artist'].lower(): item['weighted_score'] for item in data}
 
-@mcp.tool()
-def search_concerts(keyword: str = None, city: str = CITY):
-    """
-    Search for upcoming concerts using Ticketmaster Discovery API.
-    """
+def core_search_concerts(keyword: str = None, city: str = CITY):
+    """The raw logic for searching and ranking concerts."""
     if not TICKETMASTER_API_KEY or "your_ticketmaster_api_key_here" in TICKETMASTER_API_KEY:
-        return "Error: Ticketmaster API Key is missing. Please add it to your .env file."
+        return "Error: Ticketmaster API Key is missing."
 
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
     params = {
@@ -54,9 +46,7 @@ def search_concerts(keyword: str = None, city: str = CITY):
     if not events:
         return f"No concerts found in {city}."
 
-    # Load profile to rank them
     profile = load_artist_profile()
-    
     results = []
     for event in events:
         name = event.get("name")
@@ -64,8 +54,6 @@ def search_concerts(keyword: str = None, city: str = CITY):
         date = event.get("dates", {}).get("start", {}).get("localDate")
         url = event.get("url")
         
-        # Get score based on artist match
-        # (Simplified: check if artist name is in the event name)
         score = 0
         matching_artist = None
         for artist, weight in profile.items():
@@ -75,18 +63,26 @@ def search_concerts(keyword: str = None, city: str = CITY):
                 break
         
         results.append({
-            "name": name,
-            "venue": venue,
-            "date": date,
-            "url": url,
-            "score": score,
-            "matched_artist": matching_artist
+            "name": name, "venue": venue, "date": date,
+            "url": url, "score": score, "matched_artist": matching_artist
         })
 
-    # Sort by score descending, then by date
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)
-    
-    return results[:15] # Return top 15
+    return results[:15]
 
-if __name__ == "__main__":
-    mcp.run(transport="stdio")
+# MCP Wrapper (only runs if fastmcp is installed)
+try:
+    from mcp.server.fastmcp import FastMCP
+    mcp = FastMCP("Austin Concert Agent")
+
+    @mcp.tool()
+    def search_concerts(keyword: str = None, city: str = CITY):
+        """Search for upcoming concerts using Ticketmaster Discovery API."""
+        return core_search_concerts(keyword, city)
+
+    if __name__ == "__main__":
+        mcp.run(transport="stdio")
+except ImportError:
+    if __name__ == "__main__":
+        print("FastMCP not installed. Running core search test:")
+        print(core_search_concerts())
