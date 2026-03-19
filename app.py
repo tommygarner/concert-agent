@@ -23,13 +23,18 @@ st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="
 # --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: white; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1DB954; color: white; border: none; }
+    /* Main area text white */
+    .main .stMarkdown, .main p, .main span { color: white !important; }
+    .stChatMessage p { color: white !important; }
+    
+    /* Sidebar text black */
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label { 
+        color: black !important; 
+    }
+    
     .concert-card { border: 1px solid #444; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white !important; }
     .match-tag { background-color: #1DB954; color: black !important; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
     div[data-testid="stSidebarNav"] { display: none; }
-    /* Ensure all markdown and chat text is white and readable */
-    .stMarkdown, .stChatMessage p, p { color: white !important; font-size: 1.05rem; line-height: 1.6; }
     .concert-card span, .concert-card div { color: #ccc !important; }
     .concert-card b, .concert-card strong { color: white !important; }
 
