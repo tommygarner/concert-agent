@@ -3,6 +3,8 @@ import pandas as pd
 import requests
 import os
 import json
+import time
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -38,8 +40,8 @@ st.markdown("""
     .concert-card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white !important; }
     .concert-card span { color: white !important; }
     .concert-card div { color: #ccc !important; }
-    .concert-card b, .concert-card strong { color: white !important; }
     .match-tag { background-color: #1DB954; color: black !important; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
+    .countdown-box { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; border: 1px solid #ffeeba; margin: 10px 0; font-weight: bold; text-align: center; }
     div[data-testid="stSidebarNav"] { display: none; }
     </style>
     """, unsafe_allow_html=True)
@@ -93,8 +95,8 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- CHAT ENGINE (Self-Healing Fallback) ---
-user_input = st.chat_input("How far is the Mt. Joy show from my house?")
+# --- CHAT ENGINE (Self-Healing Fallback with Countdown) ---
+user_input = st.chat_input("What should I know about Spider House Ballroom?")
 
 if user_input:
     st.session_state.query_made = True
@@ -115,9 +117,16 @@ if user_input:
                 RULES: Be proactive with distances and venue info. NO LaTeX.
                 """
                 
-                # List of models to try in order of preference
-                models_to_try = ['gemini-2.0-flash', 'gemini-2.0-flash-lite-001', 'gemini-pro-latest']
+                # Verified list of models for your account
+                models_to_try = [
+                    'gemini-2.0-flash', 
+                    'gemini-2.0-flash-lite-001', 
+                    'gemini-pro-latest', 
+                    'gemini-flash-latest',
+                    'gemini-2.5-flash'
+                ]
                 success = False
+                retry_wait = 0
                 
                 for model_name in models_to_try:
                     try:
@@ -133,14 +142,30 @@ if user_input:
                         success = True
                         break
                     except Exception as e:
-                        if "429" in str(e) or "404" in str(e):
-                            continue # Try next model
+                        err_str = str(e)
+                        if "429" in err_str or "quota" in err_str.lower():
+                            # Try to parse the retry delay (e.g., "retry in 47.13s")
+                            match = re.search(r"retry in (\d+\.?\d*)s", err_str)
+                            if match:
+                                retry_wait = max(retry_wait, float(match.group(1)))
+                            continue
+                        elif "404" in err_str:
+                            continue
                         else:
                             st.error(f"Error: {e}")
                             break
                 
                 if not success:
-                    st.error("All available models are currently at their quota limit. Please try again in a few minutes.")
+                    if retry_wait > 0:
+                        st.warning(f"All models are busy. Starting cooldown...")
+                        placeholder = st.empty()
+                        for i in range(int(retry_wait), 0, -1):
+                            placeholder.markdown(f'<div class="countdown-box">🕒 Quota Cooldown: {i}s remaining</div>', unsafe_allow_html=True)
+                            time.sleep(1)
+                        placeholder.empty()
+                        st.info("🔄 Cooldown complete! Please try your query again.")
+                    else:
+                        st.error("All models are currently at their limit. Please try again in 60 seconds.")
 
 # --- STATIC RECOMMENDATIONS ---
 if not st.session_state.query_made:
