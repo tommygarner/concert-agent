@@ -8,3 +8,4 @@ streamlit>=1.35.0
 altair
 twilio
 googlemaps
+beautifulsoup4
