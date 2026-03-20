@@ -4,93 +4,81 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-An automated concert discovery agent for Austin, TX, built around a 5-role multi-agent pipeline. It fetches recent Spotify listening history via the Spotify API, scores artists via exponential decay, runs a human approval step, then queries Ticketmaster for upcoming shows, uses Gemini to suggest similar artists, and sends bi-weekly email digests.
+Austin Concert Agent: an AI-powered concert discovery app that ranks local shows using 10 years of personal Spotify streaming history. The agent uses Google Gemini for tool orchestration and surfaces events from both Ticketmaster (major tours) and Showlist Austin (indie/small venues).
 
-## Running the Agent
-
-Each pipeline phase maps to a CLI flag in `agent.py`:
+## Commands
 
 ```bash
-# Phase 1: Fetch Spotify plays via API and populate the database
-# (browser opens for OAuth on first run; token cached in .cache)
-python agent.py --historian
+# Install dependencies
+pip install -r requirements.txt
 
-# Phase 2: Approve or veto artists (human-in-the-loop via browser UI)
-streamlit run gatekeeper_dashboard.py
+# Step 1: Generate your artist profile from Spotify data
+python ingest_spotify.py
 
-# Phase 3: Search Ticketmaster for concerts by approved artists
-python agent.py --scout
+# Step 2a: Run the Streamlit web UI
+streamlit run app.py
 
-# Phase 4: Use Gemini to suggest similar artists (stored as PENDING)
-python agent.py --matchmaker
+# Step 2b: Run the terminal agent directly
+python gemini_agent.py "What shows should I see this weekend?"
 
-# Phase 5: Send email digest of NEW concert alerts
-python agent.py --secretary
-
-# Run all phases in sequence
-python agent.py --historian --scout --matchmaker --secretary
-
-# Standalone Spotify sync utility
-python sync_spotify_to_db.py
+# Run server.py as an MCP server (requires fastmcp)
+python server.py
 ```
+
+## Environment Setup
+
+Create a `.env` file with:
+```
+TICKETMASTER_API_KEY=...
+GEMINI_API_KEY=...
+GOOGLE_MAPS_API_KEY=...
+HOME_ADDRESS="Your Address, Austin, TX"
+
+# Optional SMS alerts
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=...
+MY_PHONE_NUMBER=...
+```
+
+`app.py` also reads from Streamlit secrets (`st.secrets`) as a fallback for `TICKETMASTER_API_KEY` and `GEMINI_API_KEY`.
 
 ## Architecture
 
-The pipeline is orchestrated by `ConcertDiscoveryAgent` in `agent.py`, which calls into five tool classes in `tools/`:
-
-| Role | File | Class |
-|---|---|---|
-| Historian | `tools/spotify_parser.py` | `SpotifyAnalystAPI` |
-| Database | `tools/db_manager.py` | `DatabaseManager` |
-| Scout | `tools/ticketmaster_scout.py` | `TicketmasterScout` |
-| Matchmaker | `tools/matchmaker.py` | `MatchmakerDiscovery` |
-| Secretary | `tools/secretary_notifier.py` | `SecretaryNotifier` |
-
-**Gatekeeper UI:** `gatekeeper_dashboard.py` — Streamlit dashboard that reads from the SQLite DB and lets the user APPROVE or VETO PENDING artists before the Scout runs.
-
-**State Machine:**
-- Artists: `PENDING` → `APPROVED` or `VETOED`
-- Concert alerts: `NEW` → `NOTIFIED`
-
-**Database:** `concert_agent.db` (SQLite, auto-created on first run, gitignored)
-- `artist_preferences(artist_name PK, interest_score, status, last_updated)`
-- `concert_alerts(event_id PK, artist_name FK, venue, date, url, notified_status)`
-
-## Scoring Algorithm
-
-`SpotifyAnalystAPI.get_top_artists()` calls `sp.current_user_recently_played(limit=50)` and applies exponential decay:
-```
-Score = 0.5 ^ (days_since_play / 90)
-```
-Only aggregated artist names and scores are ever sent to the LLM — raw Spotify data stays local.
-
-## Environment Variables (`.env`)
+### Data Flow
 
 ```
-TICKETMASTER_API_KEY=
-GEMINI_API_KEY=
-
-# Spotify API — create an app at https://developer.spotify.com/dashboard
-SPOTIFY_CLIENT_ID=
-SPOTIFY_CLIENT_SECRET=
-SPOTIFY_REDIRECT_URI=http://localhost:8888/callback
-
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-EMAIL_USER=
-EMAIL_PASSWORD=             # Gmail app-specific password, not account password
-RECIPIENT_EMAIL=
+my_spotify_data/Spotify Extended Streaming History/*.json
+    → ingest_spotify.py (time-decay weighted scoring, half-life = 365 days)
+    → data/artist_profile.json  [{ artist, total_plays, weighted_score, last_played }]
+        → loaded at query time to rank/score Ticketmaster results
 ```
 
-Spotipy uses `SpotifyOAuth` with scope `user-read-recently-played`. On first run it opens a browser for OAuth and caches the token in `.cache` (gitignored).
+### Core Files
 
-## Dependencies
+- **`ingest_spotify.py`**: One-time ETL. Reads all `Streaming_History_Audio_*.json` files, filters plays under 30s, applies exponential time-decay weighting (`0.5^(days_ago/365)`), aggregates by artist, writes `data/artist_profile.json`.
 
-Install via `pip install -r requirements.txt`. Packages: `spotipy`, `pandas`, `requests`, `google-genai`, `streamlit`, `python-dotenv`. Built-ins used: `sqlite3`, `smtplib`, `argparse`.
+- **`tools.py`**: All callable tool functions used by the Gemini agent in `app.py`. Four tools:
+  - `search_concerts` - Ticketmaster Discovery API v2, city-scoped, ranks results against artist profile
+  - `search_small_venue_calendar` - scrapes showlistaustin.com for venue-specific listings
+  - `get_distance_to_venue` - Google Maps Distance Matrix API
+  - `get_venue_details` - fuzzy lookup into `data/venue_knowledge.json` (local RAG: parking, vibe, age limits)
+  - `send_concert_sms` - Twilio SMS alert
 
-## Key Conventions
+- **`server.py`**: Thin MCP wrapper around the same concert-search logic. Exposes `search_concerts` as an MCP tool via FastMCP (stdio transport). Gracefully degrades if `fastmcp` is not installed. Can also be imported by `gemini_agent.py` for its `load_artist_profile` and `search_concerts` functions.
 
-- Each tool class is self-contained and importable independently.
-- Database access uses `with self._get_connection() as conn` context manager pattern.
-- Manual tests live in `if __name__ == "__main__"` blocks at the bottom of each tool file.
-- Gemini model: `gemini-1.5-flash` (used in `matchmaker.py`).
+- **`app.py`**: Streamlit chat UI. Loads all tools from `tools.py`, wraps `search_small_venue_calendar` with `@st.cache_data(ttl=21600)` to avoid hammering the scraper, and cycles through a model fallback list (`gemini-2.0-flash` → `gemini-2.0-flash-lite-001` → `gemini-pro-latest` → `gemini-flash-latest`) on 429/404 errors with a visible countdown timer.
+
+- **`gemini_agent.py`**: Minimal terminal entrypoint. Imports `search_concerts` and `load_artist_profile` from `server.py`, passes top-20 artists as system prompt context, uses `enable_automatic_function_calling=True`.
+
+### Data Files
+
+- **`data/artist_profile.json`**: Generated by `ingest_spotify.py`. Not checked in — run ingest first.
+- **`data/venue_knowledge.json`**: Static RAG knowledge base for Austin venues (parking, vibe, age limits, tips). Add new venues here as JSON objects.
+
+### Key Design Decisions
+
+- Artist matching in `search_concerts` is a simple substring check (`artist in event_name.lower()`). This is intentional for speed but misses multi-word partial matches.
+- The Gemini model receives the top-20 artists by weighted score as plain text in the system prompt — no vector DB, no embeddings.
+- `app.py` and `tools.py` duplicate some logic from `server.py` (e.g., `load_artist_profile`). This is intentional: `tools.py` is the canonical tool layer for the Streamlit app; `server.py` is the MCP layer.
+- The small-venue scraper hits showlistaustin.com on every call — cache it (already done in `app.py` via `st.cache_data`) when adding new callers.

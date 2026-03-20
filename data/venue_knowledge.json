@@ -39,7 +39,7 @@
     "parking": "Limited street parking. Official garage at 501 Navasota St (one block north).",
     "age_limit": "Generally All Ages, some 18+.",
     "vibe": "Established 1871. Cozy, string-lit backyard party vibe. Great for Americana, indie, and folk.",
-    "tips": "Cashless venue. Outdoor venue, very relaxed atmosphere. FOOD: Usually has a resident food truck (like Arlo's or similar) on the patio, and is walking distance to many East 6th eateries."
+    "tips": "Cashless venue. Outdoor venue, very relaxed atmosphere. FOOD: Usually has a resident food truck (like Arlo's) on the patio."
   },
   {
     "name": "The Ballroom at Spider House",
@@ -47,5 +47,68 @@
     "age_limit": "Usually 18+ or 21+. Strictly enforced ID policy.",
     "vibe": "Eclectic 'Old Austin'. 1920s bungalow meets punk dive bar. Intimate indoor stage with retro decor and a large breezy patio shared with Tweedy's Bar.",
     "tips": "Check out the food trucks on the patio. Extremely casual dress code. Arrive early if you want a table inside."
+  },
+  {
+    "name": "Antone's Nightclub",
+    "parking": "Street parking or nearby downtown garages. Valet often available at Westin/Eddie V's.",
+    "age_limit": "Usually 21+. Check specific show details.",
+    "vibe": "The 'Home of the Blues'. Historic, polished downtown spot with legendary sound and a welcoming atmosphere.",
+    "tips": "Gift shop on site. Legendary Austin history."
+  },
+  {
+    "name": "Hole in the Wall",
+    "parking": "Limited street parking on Guadalupe. Side streets nueces/Rio Grande free after 6 PM. Rear lot free for patrons AFTER 9 PM.",
+    "age_limit": "Usually 21+ after 9 PM. Happy hours/daytime often all-ages.",
+    "vibe": "Classic gritty UT-area dive. Gritty, authentic, and a rite of passage for local indie bands.",
+    "tips": "Casual dress code. Right across from UT campus."
+  },
+  {
+    "name": "Continental Club",
+    "parking": "Very difficult street parking on South Congress. Rideshare or bus recommended.",
+    "age_limit": "Strictly 21+.",
+    "vibe": "Dimly lit, 1950s hot-rod/rockabilly aesthetic. Intimate and steeped in roots/country/blues history.",
+    "tips": "Upstairs 'Gallery' has a separate calendar and a quieter vibe."
+  },
+  {
+    "name": "ACL Live at The Moody Theater",
+    "parking": "Paid garages at the W Hotel or Austin City Hall. Metered street parking is rare.",
+    "age_limit": "Generally All Ages.",
+    "vibe": "Pristine sound and sightlines. State-of-the-art facility where Austin City Limits is filmed. Polished and professional.",
+    "tips": "Seated venue for many shows, check your ticket for floor vs. balcony."
+  },
+  {
+    "name": "The White Horse",
+    "parking": "Small lot available, but mostly residential street parking. Check signs carefully.",
+    "age_limit": "Strictly 21+.",
+    "vibe": "High-energy hipster honky-tonk. Always crowded, always dancing. Expect country, bluegrass, and a lot of whiskey.",
+    "tips": "They have a great outdoor taco truck and a pool table."
+  },
+  {
+    "name": "Broken Spoke",
+    "parking": "Dedicated lot on-site, but it fills up very early.",
+    "age_limit": "All Ages until late night.",
+    "vibe": "World-famous honky-tonk established 1864. True Texas grit, chicken fried steak, and two-stepping lessons.",
+    "tips": "Get there early for dance lessons if you're a beginner."
+  },
+  {
+    "name": "Saxon Pub",
+    "parking": "Small dedicated lot and street parking. Lot fills fast.",
+    "age_limit": "Strictly 21+.",
+    "vibe": "Legendary listening room. Intimate, respectful crowd, focus is 100% on the songwriter.",
+    "tips": "Known for the neon sign and incredible acoustics."
+  },
+  {
+    "name": "Moody Amphitheater at Waterloo Park",
+    "parking": "Paid garages nearby (Waterloo Greenway). No on-site parking.",
+    "age_limit": "All Ages.",
+    "vibe": "Scenic outdoor park stage with Austin skyline backdrop. New and modern with great production.",
+    "tips": "Lawn seating is common, bring a blanket if allowed for the show."
+  },
+  {
+    "name": "Cactus Cafe",
+    "parking": "Paid UT campus garages (San Antonio St). Very little street parking.",
+    "age_limit": "Generally All Ages.",
+    "vibe": "Historic, world-class acoustic listening room inside the UT Union building. Legendary for folk and Americana.",
+    "tips": "Arrive early; seating is very limited and intimate."
   }
 ]
