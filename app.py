@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
-from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks
+from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks, save_message, load_chat_history, clear_chat_history
 
 # Load configuration
 load_dotenv()
@@ -55,7 +55,15 @@ def get_cached_small_venue_data(venue_name):
 
 # --- SESSION STATE ---
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    # Try to restore from Supabase for logged-in users
+    db_uid = st.session_state.get("db_user_id")
+    if db_uid:
+        saved = load_chat_history(db_uid, limit=20)
+        st.session_state.messages = saved if saved else []
+    else:
+        st.session_state.messages = []
+    if st.session_state.messages:
+        st.session_state.query_made = True
 if "query_made" not in st.session_state:
     st.session_state.query_made = False
 if "mode" not in st.session_state:
@@ -82,6 +90,7 @@ st.markdown("""
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("🎸 Settings")
+    profile = {}
     MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
     mode = st.selectbox(
         "Persona",
@@ -174,6 +183,9 @@ with st.sidebar:
     if st.button("Clear Chat"):
         st.session_state.messages = []
         st.session_state.query_made = False
+        uid = st.session_state.get("db_user_id")
+        if uid:
+            clear_chat_history(uid)
         st.rerun()
 
     st.write("---")
@@ -261,6 +273,9 @@ user_input = st.chat_input("What's happening at Mohawk this week?")
 if user_input:
     st.session_state.query_made = True
     st.session_state.messages.append({"role": "user", "content": user_input})
+    db_uid = st.session_state.get("db_user_id")
+    if db_uid:
+        save_message(db_uid, "user", user_input)
     with st.chat_message("user"):
         st.markdown(user_input)
             
@@ -275,7 +290,7 @@ if user_input:
                 USER TASTE: {profile_ctx}
 
                 TOOLS:
-                1. `search_concerts`: Major tours (Ticketmaster).
+                1. `search_concerts`: Major tours (Ticketmaster). Supports genre, start_date, end_date filters. Returns price ranges when available.
                 2. `search_small_venue_calendar`: Local/indie shows (Showlist Austin).
                 3. `get_distance_to_venue`: Maps travel time.
                 4. `get_venue_details`: Insider parking/vibe info.
@@ -287,6 +302,8 @@ if user_input:
                 - If a user asks for a specific small venue (like Mohawk, Hole in the Wall, Vegas), use `search_small_venue_calendar`.
                 - If Ticketmaster returns nothing, try `search_small_venue_calendar` as a backup.
                 - When recommending a show for a known artist, call `get_recent_setlist` to enrich the recommendation with recent setlist info.
+                - When a user asks about price or budget, use the price field from search_concerts results.
+                - When a user asks for a specific time range ("this weekend", "next month"), use start_date/end_date params on search_concerts.
                 - Be proactive with distances. NO LaTeX.
                 """
                 
@@ -311,6 +328,8 @@ if user_input:
                         clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)
                         st.markdown(clean_text)
                         st.session_state.messages.append({"role": "assistant", "content": clean_text})
+                        if db_uid:
+                            save_message(db_uid, "assistant", clean_text)
                         success = True
                         break
                     except Exception as e:
@@ -353,10 +372,19 @@ if not st.session_state.query_made:
     for e in events:
         name = e['name']
         score, tier = match_artist_to_event(name, profile)
+        price_ranges = e.get("priceRanges", [])
+        price_str = ""
+        if price_ranges:
+            low = price_ranges[0].get("min")
+            high = price_ranges[0].get("max")
+            if low and high:
+                price_str = f"${low:.0f}-${high:.0f}"
+            elif low:
+                price_str = f"From ${low:.0f}"
         ranked.append({
             "name": name, "venue": e['_embedded']['venues'][0]['name'],
             "date": e['dates']['start'].get('localDate', 'TBD'),
-            "url": e['url'], "score": score, "tier": tier
+            "url": e['url'], "score": score, "tier": tier, "price": price_str
         })
 
     ranked.sort(key=lambda x: x['score'], reverse=True)
@@ -377,7 +405,7 @@ if not st.session_state.query_made:
                     <span style="font-size: 1em; font-weight: bold; color: white;">{event['name']}</span>
                     {tag}
                 </div>
-                <div style="color: #aaa; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}</div>
+                <div style="color: #aaa; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}{' | 💰 ' + event['price'] if event.get('price') else ''}</div>
                 <div style="display: flex; gap: 12px; margin-top: 4px;">
                     <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>
                     <a href="{gcal_link}" target="_blank" style="color: #4285f4; text-decoration: none; font-size: 0.85em;">📅 Add to Calendar</a>

@@ -66,12 +66,16 @@ def load_artist_profile():
         for item in data
     }
 
-def search_concerts(keyword: str = None, city: str = "Austin"):
-    """Search major concerts via Ticketmaster, ranked by listener affinity tier."""
+def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None, start_date: str = None, end_date: str = None):
+    """Search major concerts via Ticketmaster, ranked by listener affinity tier.
+    Optional filters: genre (e.g. 'rock', 'jazz', 'hip-hop'), start_date and end_date (YYYY-MM-DD)."""
     if not TICKETMASTER_API_KEY: return "Missing TM Key."
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
     params = {"apikey": TICKETMASTER_API_KEY, "city": city, "classificationName": "music", "size": 50, "sort": "date,asc"}
     if keyword: params["keyword"] = keyword
+    if genre: params["keyword"] = f"{params.get('keyword', '')} {genre}".strip()
+    if start_date: params["startDateTime"] = f"{start_date}T00:00:00Z"
+    if end_date: params["endDateTime"] = f"{end_date}T23:59:59Z"
     response = requests.get(url, params=params)
     if response.status_code != 200: return f"Error: {response.status_code}"
     events = response.json().get("_embedded", {}).get("events", [])
@@ -81,10 +85,20 @@ def search_concerts(keyword: str = None, city: str = "Austin"):
         name = event.get("name")
         v_info = event.get("_embedded", {}).get("venues", [{}])[0]
         score, tier = match_artist_to_event(name, profile)
+        price_ranges = event.get("priceRanges", [])
+        price_str = ""
+        if price_ranges:
+            low = price_ranges[0].get("min")
+            high = price_ranges[0].get("max")
+            currency = price_ranges[0].get("currency", "USD")
+            if low and high:
+                price_str = f"${low:.0f}-${high:.0f} {currency}"
+            elif low:
+                price_str = f"From ${low:.0f} {currency}"
         results.append({
             "name": name, "venue": v_info.get("name"), "address": v_info.get("address", {}).get("line1", ""),
             "date": event.get("dates", {}).get("start", {}).get("localDate"),
-            "url": event.get("url"), "score": score, "tier": tier
+            "url": event.get("url"), "score": score, "tier": tier, "price": price_str
         })
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)
     return results[:10]
@@ -245,12 +259,25 @@ def make_gcal_url(event_name: str, date: str, venue: str = "", ticket_url: str =
     return url
 
 
+_PRESALE_CACHE_PATH = Path("data/presale_cache.json")
+_PRESALE_CACHE_TTL = 3600  # 1 hour
+
+
 def get_presale_alerts(city: str = "Austin"):
     """
     Check for upcoming presale windows for the user's top artists.
     Returns events with active or upcoming presales, including presale codes and timing.
-    Example: get_presale_alerts("Austin")
+    Results cached for 1 hour. Example: get_presale_alerts("Austin")
     """
+    # Check cache
+    if _PRESALE_CACHE_PATH.exists():
+        try:
+            cached = json.loads(_PRESALE_CACHE_PATH.read_text())
+            if time.time() - cached.get("cached_at", 0) < _PRESALE_CACHE_TTL and cached.get("city") == city:
+                return cached["result"]
+        except Exception:
+            pass
+
     if not TICKETMASTER_API_KEY: return "Missing TM Key."
     profile = load_artist_profile()
     if not profile: return "No artist profile loaded."
@@ -328,12 +355,20 @@ def get_presale_alerts(city: str = "Austin"):
             continue
 
     if not alerts:
-        return "No upcoming presales found for your superfan artists in the next week."
+        result = "No upcoming presales found for your superfan artists in the next week."
+    else:
+        lines = []
+        for a in alerts:
+            lines.append(f"[{a['presale_status']}] {a['event']} at {a['venue']} ({a['event_date']}) - {a['presale_name']} | {a['url']}")
+        result = "\n".join(lines)
 
-    lines = []
-    for a in alerts:
-        lines.append(f"[{a['presale_status']}] {a['event']} at {a['venue']} ({a['event_date']}) - {a['presale_name']} | {a['url']}")
-    return "\n".join(lines)
+    # Cache result
+    try:
+        _PRESALE_CACHE_PATH.parent.mkdir(exist_ok=True)
+        _PRESALE_CACHE_PATH.write_text(json.dumps({"result": result, "city": city, "cached_at": time.time()}))
+    except Exception:
+        pass
+    return result
 
 
 def get_venue_details(venue_name: str):

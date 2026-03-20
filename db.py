@@ -132,6 +132,57 @@ def log_attendance(spotify_user_id: str, event_name: str, venue: str, event_date
         pass
 
 
+# ---------------------------------------------------------------------------
+# Chat history
+# ---------------------------------------------------------------------------
+
+def save_message(spotify_user_id: str, role: str, content: str):
+    """Save a chat message to Supabase."""
+    sb = _client()
+    if not sb or not spotify_user_id:
+        return
+    try:
+        sb.table("chat_messages").insert({
+            "spotify_user_id": spotify_user_id,
+            "role": role,
+            "content": content,
+        }).execute()
+    except Exception:
+        pass
+
+
+def load_chat_history(spotify_user_id: str, limit: int = 20) -> list:
+    """Load recent chat messages, oldest first."""
+    sb = _client()
+    if not sb or not spotify_user_id:
+        return []
+    try:
+        result = (
+            sb.table("chat_messages")
+            .select("role, content")
+            .eq("spotify_user_id", spotify_user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = result.data or []
+        rows.reverse()  # oldest first
+        return rows
+    except Exception:
+        return []
+
+
+def clear_chat_history(spotify_user_id: str):
+    """Delete all chat messages for a user."""
+    sb = _client()
+    if not sb or not spotify_user_id:
+        return
+    try:
+        sb.table("chat_messages").delete().eq("spotify_user_id", spotify_user_id).execute()
+    except Exception:
+        pass
+
+
 def get_past_shows(spotify_user_id: str, limit: int = 10) -> list:
     """Return shows the user has logged, most recent first."""
     sb = _client()

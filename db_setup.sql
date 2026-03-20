@@ -41,3 +41,15 @@ alter table attended_events enable row level security;
 create policy "open_agent_users"     on agent_users     for all using (true) with check (true);
 create policy "open_clicked_events"  on clicked_events  for all using (true) with check (true);
 create policy "open_attended_events" on attended_events for all using (true) with check (true);
+
+-- Chat history (persists across page reloads)
+create table if not exists chat_messages (
+    id              uuid primary key default gen_random_uuid(),
+    spotify_user_id text references agent_users(spotify_user_id) on delete cascade,
+    role            text not null check (role in ('user', 'assistant')),
+    content         text not null,
+    created_at      timestamptz default now()
+);
+
+alter table chat_messages enable row level security;
+create policy "open_chat_messages" on chat_messages for all using (true) with check (true);
