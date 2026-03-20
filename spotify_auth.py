@@ -6,17 +6,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SCOPE = "user-top-read user-read-recently-played"
-REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://localhost:8501")
 
 # Tier thresholds applied to live profile rank-based scores
 _TOP_10_PCT = 0.10
 
 
+def _get_secret(key, default=None):
+    """Read from st.secrets first (Streamlit Cloud), fall back to env var."""
+    try:
+        import streamlit as st
+        return st.secrets.get(key, os.getenv(key, default))
+    except Exception:
+        return os.getenv(key, default)
+
+
 def _make_auth_manager():
     return SpotifyOAuth(
-        client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-        client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-        redirect_uri=REDIRECT_URI,
+        client_id=_get_secret("SPOTIFY_CLIENT_ID"),
+        client_secret=_get_secret("SPOTIFY_CLIENT_SECRET"),
+        redirect_uri=_get_secret("SPOTIFY_REDIRECT_URI", "http://localhost:8501"),
         scope=SCOPE,
         cache_path=None,
         open_browser=False,
