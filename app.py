@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
+from db import get_or_create_user, get_past_shows
 
 # Load configuration
 load_dotenv()
@@ -36,6 +37,9 @@ if "code" in query_params and "sp_token" not in st.session_state:
             st.session_state["sp_artist_ids"] = sp_artist_ids
             st.session_state["sp_token"] = True
             st.session_state["mode"] = "Connect Spotify"
+            # Persist user identity in Supabase (db_user_id = spotify_user_id string)
+            get_or_create_user(user_id, display_name)
+            st.session_state["db_user_id"] = user_id
             st.query_params.clear()
             st.rerun()
         except Exception as e:
@@ -99,8 +103,18 @@ with st.sidebar:
             st.caption(f"{n_superfans} superfans from your Spotify history")
             if superfans:
                 st.caption("Superfans: " + ", ".join(superfans))
+            # Past shows
+            db_uid = st.session_state.get("db_user_id")
+            if db_uid:
+                past = get_past_shows(db_uid, limit=3)
+                if past:
+                    st.caption("Recent shows: " + ", ".join(
+                        f"{s['event_name']} ({'went' if s['attended'] else 'skipped'})"
+                        for s in past
+                    ))
+
             if st.button("Disconnect"):
-                for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token"]:
+                for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token", "db_user_id"]:
                     st.session_state.pop(key, None)
                 st.rerun()
         else:

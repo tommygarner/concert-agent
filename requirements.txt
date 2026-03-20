@@ -10,3 +10,4 @@ twilio
 googlemaps
 beautifulsoup4
 spotipy
+supabase
