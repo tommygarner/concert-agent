@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 
 # Load configuration
@@ -226,16 +226,18 @@ if user_input:
                 sys_instr = f"""
                 You are a professional Austin Concert Concierge.
                 USER TASTE: {profile_ctx}
-                
-                TOOLS: 
+
+                TOOLS:
                 1. `search_concerts`: Major tours (Ticketmaster).
                 2. `search_small_venue_calendar`: Local/indie shows (Showlist Austin).
                 3. `get_distance_to_venue`: Maps travel time.
                 4. `get_venue_details`: Insider parking/vibe info.
-                
-                RULES: 
+                5. `get_recent_setlist`: Fetch an artist's most recent setlist (songs played, venue, date). Use this when recommending a show to give the user a sense of what to expect.
+
+                RULES:
                 - If a user asks for a specific small venue (like Mohawk, Hole in the Wall, Vegas), use `search_small_venue_calendar`.
                 - If Ticketmaster returns nothing, try `search_small_venue_calendar` as a backup.
+                - When recommending a show for a known artist, call `get_recent_setlist` to enrich the recommendation with recent setlist info.
                 - Be proactive with distances. NO LaTeX.
                 """
                 
@@ -251,7 +253,7 @@ if user_input:
 
                         model = genai.GenerativeModel(
                             model_name=model_name,
-                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool],
+                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist],
                             system_instruction=sys_instr
                         )
                         chat = model.start_chat(enable_automatic_function_calling=True)

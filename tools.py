@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 import googlemaps
 import re
@@ -15,6 +16,23 @@ TICKETMASTER_API_KEY = os.getenv("TICKETMASTER_API_KEY")
 GMAPS_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 HOME_ADDRESS = os.getenv("HOME_ADDRESS", "Austin, TX")
 PROFILE_PATH = Path("data/artist_profile.json")
+SETLISTFM_API_KEY = os.getenv("SETLISTFM_API_KEY", "gVL9bICwFdNYK_ieBYDAUxbaYYDePZCjm_rz")
+
+# Simple file-based cache for setlist.fm (24hr TTL, stays under 1440/day limit)
+_SETLIST_CACHE_PATH = Path("data/setlist_cache.json")
+_SETLIST_CACHE_TTL = 86400  # 24 hours in seconds
+
+def _load_setlist_cache():
+    if _SETLIST_CACHE_PATH.exists():
+        try:
+            return json.loads(_SETLIST_CACHE_PATH.read_text())
+        except Exception:
+            pass
+    return {}
+
+def _save_setlist_cache(cache):
+    _SETLIST_CACHE_PATH.parent.mkdir(exist_ok=True)
+    _SETLIST_CACHE_PATH.write_text(json.dumps(cache))
 
 def load_artist_profile():
     """Returns {artist_name_lower: {'score': float, 'tier': str}}"""
@@ -116,6 +134,72 @@ def send_concert_sms(message: str):
         msg = client.messages.create(body=f"🎸 Concert Agent: {message}", from_=phone, to=my_phone)
         return f"SMS sent! SID: {msg.sid}"
     except Exception as e: return f"Error: {str(e)}"
+
+def get_recent_setlist(artist_name: str):
+    """
+    Fetch the most recent setlist for an artist from setlist.fm.
+    Returns a summary of the last show: date, venue, city, and songs played.
+    Results are cached for 24 hours to stay within the 1440/day API limit.
+    Example: get_recent_setlist("Khruangbin")
+    """
+    cache_key = artist_name.lower().strip()
+    cache = _load_setlist_cache()
+
+    # Return cached result if still fresh
+    if cache_key in cache:
+        entry = cache[cache_key]
+        if time.time() - entry["cached_at"] < _SETLIST_CACHE_TTL:
+            return entry["result"]
+
+    headers = {
+        "x-api-key": SETLISTFM_API_KEY,
+        "Accept": "application/json",
+    }
+    try:
+        resp = requests.get(
+            "https://api.setlist.fm/rest/1.0/search/setlists",
+            params={"artistName": artist_name, "p": 1},
+            headers=headers,
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return f"Could not fetch setlist for '{artist_name}' (status {resp.status_code})."
+
+        setlists = resp.json().get("setlist", [])
+        # Find the most recent setlist that actually has songs
+        for sl in setlists:
+            songs = []
+            for section in sl.get("sets", {}).get("set", []):
+                for song in section.get("song", []):
+                    if song.get("name"):
+                        songs.append(song["name"])
+            if not songs:
+                continue
+
+            event_date = sl.get("eventDate", "Unknown date")
+            venue = sl.get("venue", {})
+            venue_name_str = venue.get("name", "Unknown venue")
+            city = venue.get("city", {}).get("name", "")
+            country = venue.get("city", {}).get("country", {}).get("name", "")
+
+            song_list = ", ".join(songs[:12])
+            suffix = f" (+{len(songs) - 12} more)" if len(songs) > 12 else ""
+            result = (
+                f"{artist_name} — Last show: {event_date} at {venue_name_str}, {city}, {country}. "
+                f"Set ({len(songs)} songs): {song_list}{suffix}."
+            )
+            break
+        else:
+            result = f"No setlists with song data found for '{artist_name}'."
+
+        # Cache and return
+        cache[cache_key] = {"result": result, "cached_at": time.time()}
+        _save_setlist_cache(cache)
+        return result
+
+    except Exception as e:
+        return f"Error fetching setlist: {str(e)}"
+
 
 def get_venue_details(venue_name: str):
     """Look up insider details from local knowledge base."""
