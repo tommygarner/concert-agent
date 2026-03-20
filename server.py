@@ -13,11 +13,18 @@ STATE_CODE = os.getenv("STATE_CODE", "TX")
 PROFILE_PATH = Path("data/artist_profile.json")
 
 def load_artist_profile():
+    """Returns {artist_name_lower: {'score': float, 'tier': str}}"""
     if not PROFILE_PATH.exists():
         return {}
     with open(PROFILE_PATH, 'r') as f:
         data = json.load(f)
-        return {item['artist'].lower(): item['weighted_score'] for item in data}
+    return {
+        item['artist'].lower(): {
+            'score': item['weighted_score'],
+            'tier': item.get('tier', 'fan')
+        }
+        for item in data
+    }
 
 def core_search_concerts(keyword: str = None, city: str = CITY):
     """The raw logic for searching and ranking concerts."""
@@ -55,16 +62,18 @@ def core_search_concerts(keyword: str = None, city: str = CITY):
         url = event.get("url")
         
         score = 0
+        tier = None
         matching_artist = None
-        for artist, weight in profile.items():
+        for artist, info in profile.items():
             if artist in name.lower():
-                score = weight
+                score = info['score']
+                tier = info['tier']
                 matching_artist = artist
                 break
-        
+
         results.append({
             "name": name, "venue": venue, "date": date,
-            "url": url, "score": score, "matched_artist": matching_artist
+            "url": url, "score": score, "tier": tier, "matched_artist": matching_artist
         })
 
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)

@@ -58,13 +58,22 @@ with st.sidebar:
     
     if mode == "Guest Mode":
         guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
-        profile = {a.strip().lower(): 100.0 for a in guest_artists.split(",")}
+        profile = {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guest_artists.split(",")}
     else:
         if Path("data/artist_profile.json").exists():
             with open("data/artist_profile.json", "r") as f:
                 data = json.load(f)
-                profile = {item['artist'].lower(): item['weighted_score'] for item in data}
-            st.success("Loaded 10-year History")
+                profile = {
+                    item['artist'].lower(): {
+                        'score': item['weighted_score'],
+                        'tier': item.get('tier', 'fan')
+                    }
+                    for item in data
+                }
+            superfans = [item['artist'] for item in data if item.get('tier') == 'superfan'][:8]
+            st.success(f"Loaded history — {len([v for v in profile.values() if v['tier'] == 'superfan'])} superfans")
+            if superfans:
+                st.caption("Superfans: " + ", ".join(superfans))
         else:
             profile = {}
 
@@ -91,8 +100,15 @@ def get_profile_context():
     if Path("data/artist_profile.json").exists():
         with open("data/artist_profile.json", "r") as f:
             data = json.load(f)
-            top = sorted(data, key=lambda x: x['weighted_score'], reverse=True)[:20]
-            return ", ".join([f"{a['artist']}" for a in top])
+        top = sorted(data, key=lambda x: x['weighted_score'], reverse=True)[:30]
+        superfans = [a['artist'] for a in top if a.get('tier') == 'superfan']
+        fans = [a['artist'] for a in top if a.get('tier') == 'fan']
+        ctx = ""
+        if superfans:
+            ctx += f"SUPERFANS (highest priority — always flag these shows): {', '.join(superfans)}. "
+        if fans:
+            ctx += f"FANS (strong interest): {', '.join(fans[:15])}."
+        return ctx
     return ""
 
 # --- CHAT DISPLAY ---
@@ -193,24 +209,35 @@ if not st.session_state.query_made:
     ranked = []
     for e in events:
         score = 0
+        tier = None
         name = e['name']
-        for art, w in profile.items():
-            if art in name.lower(): score = w; break
+        for art, info in profile.items():
+            if art in name.lower():
+                score = info['score']
+                tier = info['tier']
+                break
         ranked.append({
             "name": name, "venue": e['_embedded']['venues'][0]['name'],
             "date": e['dates']['start'].get('localDate', 'TBD'),
-            "url": e['url'], "score": score
+            "url": e['url'], "score": score, "tier": tier
         })
 
     ranked.sort(key=lambda x: x['score'], reverse=True)
+
+    TIER_TAG = {
+        'superfan': "<span class='match-tag' style='background:#ff6b35;color:white;'>SUPERFAN</span>",
+        'fan':      "<span class='match-tag'>FAN</span>",
+    }
+
     cols = st.columns(2)
     for i, event in enumerate(ranked[:6]):
         with cols[i % 2]:
+            tag = TIER_TAG.get(event['tier'], "")
             st.markdown(f"""
             <div class="concert-card">
                 <div style="display: flex; justify-content: space-between;">
                     <span style="font-size: 1em; font-weight: bold;">{event['name']}</span>
-                    {"<span class='match-tag'>MATCH</span>" if event['score'] > 0 else ""}
+                    {tag}
                 </div>
                 <div style="color: #888; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}</div>
                 <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>

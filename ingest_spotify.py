@@ -47,13 +47,36 @@ def ingest_spotify_data(data_dir):
         weighted_score=('weight', 'sum'),
         last_played=('ts', 'max')
     ).sort_values(by='weighted_score', ascending=False)
-    
+
+    # Superfan tiering
+    # Recency is measured relative to the most recent play in the dataset,
+    # not today — Spotify data exports may be months old.
+    # Superfan: top 10% by weighted score AND played within 90 days of the dataset's latest play
+    # Fan: top 40% by weighted score OR played within 180 days of the dataset's latest play
+    # Casual: everything else
+    score_90th = artist_scores['weighted_score'].quantile(0.90)
+    score_60th = artist_scores['weighted_score'].quantile(0.60)
+    dataset_latest = artist_scores['last_played'].max()
+    days_since_played = (dataset_latest - artist_scores['last_played']).dt.days
+
+    def assign_tier(row, days):
+        if row['weighted_score'] >= score_90th and days[row.name] <= 90:
+            return 'superfan'
+        elif row['weighted_score'] >= score_60th or days[row.name] <= 180:
+            return 'fan'
+        else:
+            return 'casual'
+
+    artist_scores['tier'] = artist_scores.apply(
+        lambda row: assign_tier(row, days_since_played), axis=1
+    )
+
     # Save to JSON
     os.makedirs("data", exist_ok=True)
     artist_scores.reset_index().to_json("data/artist_profile.json", orient='records', indent=2)
-    
+
     print(f"\nProfile generated! Top 10 Artists (Weighted):")
-    print(artist_scores.head(10))
+    print(artist_scores[['total_plays', 'weighted_score', 'tier']].head(10))
 
 if __name__ == "__main__":
     ingest_spotify_data("my_spotify_data")

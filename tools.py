@@ -17,14 +17,21 @@ HOME_ADDRESS = os.getenv("HOME_ADDRESS", "Austin, TX")
 PROFILE_PATH = Path("data/artist_profile.json")
 
 def load_artist_profile():
+    """Returns {artist_name_lower: {'score': float, 'tier': str}}"""
     if not PROFILE_PATH.exists():
         return {}
     with open(PROFILE_PATH, 'r') as f:
         data = json.load(f)
-        return {item['artist'].lower(): item['weighted_score'] for item in data}
+    return {
+        item['artist'].lower(): {
+            'score': item['weighted_score'],
+            'tier': item.get('tier', 'fan')
+        }
+        for item in data
+    }
 
 def search_concerts(keyword: str = None, city: str = "Austin"):
-    """Search major concerts via Ticketmaster."""
+    """Search major concerts via Ticketmaster, ranked by listener affinity tier."""
     if not TICKETMASTER_API_KEY: return "Missing TM Key."
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
     params = {"apikey": TICKETMASTER_API_KEY, "city": city, "classificationName": "music", "size": 50, "sort": "date,asc"}
@@ -38,12 +45,16 @@ def search_concerts(keyword: str = None, city: str = "Austin"):
         name = event.get("name")
         v_info = event.get("_embedded", {}).get("venues", [{}])[0]
         score = 0
-        for artist, weight in profile.items():
-            if artist in name.lower(): score = weight; break
+        tier = None
+        for artist, info in profile.items():
+            if artist in name.lower():
+                score = info['score']
+                tier = info['tier']
+                break
         results.append({
             "name": name, "venue": v_info.get("name"), "address": v_info.get("address", {}).get("line1", ""),
             "date": event.get("dates", {}).get("start", {}).get("localDate"),
-            "url": event.get("url"), "score": score
+            "url": event.get("url"), "score": score, "tier": tier
         })
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)
     return results[:10]
