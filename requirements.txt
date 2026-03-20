@@ -9,3 +9,4 @@ altair
 twilio
 googlemaps
 beautifulsoup4
+spotipy

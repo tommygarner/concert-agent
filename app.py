@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile
+from spotify_auth import get_auth_url, exchange_code, build_live_profile
 
 # Load configuration
 load_dotenv()
@@ -19,6 +20,24 @@ CITY = os.getenv("CITY", "Austin")
 # Configure Gemini
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
+# --- SPOTIFY OAUTH CALLBACK ---
+# Spotify redirects back with ?code=... — exchange it immediately before anything renders
+query_params = st.query_params
+if "code" in query_params and "sp_token" not in st.session_state:
+    with st.spinner("Connecting to Spotify..."):
+        try:
+            sp, user_id, display_name = exchange_code(query_params["code"])
+            st.session_state["sp_client"] = sp
+            st.session_state["sp_user_id"] = user_id
+            st.session_state["sp_display_name"] = display_name
+            st.session_state["sp_profile"] = build_live_profile(sp)
+            st.session_state["sp_token"] = True
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Spotify connection failed: {e}")
+            st.query_params.clear()
 
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
 
@@ -54,12 +73,36 @@ st.markdown("""
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("🎸 Settings")
-    mode = st.selectbox("Persona", ["My History (Tommy)", "Guest Mode"])
-    
-    if mode == "Guest Mode":
+    mode = st.selectbox("Persona", ["My History (Tommy)", "Connect Spotify", "Guest Mode"])
+
+    if mode == "Connect Spotify":
+        if st.session_state.get("sp_token"):
+            display_name = st.session_state.get("sp_display_name", "Spotify User")
+            st.success(f"Connected as {display_name}")
+            profile = st.session_state.get("sp_profile", {})
+            superfans = [
+                name.title() for name, info in profile.items()
+                if info.get("tier") == "superfan"
+            ][:8]
+            n_superfans = sum(1 for v in profile.values() if v.get("tier") == "superfan")
+            st.caption(f"{n_superfans} superfans from your Spotify history")
+            if superfans:
+                st.caption("Superfans: " + ", ".join(superfans))
+            if st.button("Disconnect"):
+                for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token"]:
+                    st.session_state.pop(key, None)
+                st.rerun()
+        else:
+            st.info("Connect your Spotify account to get personalized recommendations.")
+            auth_url = get_auth_url()
+            st.link_button("Connect Spotify", auth_url)
+            profile = {}
+
+    elif mode == "Guest Mode":
         guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
         profile = {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guest_artists.split(",")}
-    else:
+
+    else:  # My History (Tommy)
         if Path("data/artist_profile.json").exists():
             with open("data/artist_profile.json", "r") as f:
                 data = json.load(f)
@@ -97,19 +140,27 @@ if not st.session_state.query_made:
 
 # --- PROFILE CONTEXT ---
 def get_profile_context():
-    if Path("data/artist_profile.json").exists():
+    # Use live Spotify profile if connected, otherwise fall back to file
+    if st.session_state.get("sp_token") and st.session_state.get("sp_profile"):
+        live = st.session_state["sp_profile"]
+        sorted_artists = sorted(live.items(), key=lambda x: x[1]["score"], reverse=True)[:30]
+        superfans = [name.title() for name, info in sorted_artists if info.get("tier") == "superfan"]
+        fans = [name.title() for name, info in sorted_artists if info.get("tier") == "fan"]
+    elif Path("data/artist_profile.json").exists():
         with open("data/artist_profile.json", "r") as f:
             data = json.load(f)
         top = sorted(data, key=lambda x: x['weighted_score'], reverse=True)[:30]
         superfans = [a['artist'] for a in top if a.get('tier') == 'superfan']
         fans = [a['artist'] for a in top if a.get('tier') == 'fan']
-        ctx = ""
-        if superfans:
-            ctx += f"SUPERFANS (highest priority — always flag these shows): {', '.join(superfans)}. "
-        if fans:
-            ctx += f"FANS (strong interest): {', '.join(fans[:15])}."
-        return ctx
-    return ""
+    else:
+        return ""
+
+    ctx = ""
+    if superfans:
+        ctx += f"SUPERFANS (highest priority — always flag these shows): {', '.join(superfans)}. "
+    if fans:
+        ctx += f"FANS (strong interest): {', '.join(fans[:15])}."
+    return ctx
 
 # --- CHAT DISPLAY ---
 for message in st.session_state.messages:
