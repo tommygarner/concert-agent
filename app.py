@@ -33,6 +33,7 @@ if "code" in query_params and "sp_token" not in st.session_state:
             st.session_state["sp_display_name"] = display_name
             st.session_state["sp_profile"] = build_live_profile(sp)
             st.session_state["sp_token"] = True
+            st.session_state["mode"] = "Connect Spotify"
             st.query_params.clear()
             st.rerun()
         except Exception as e:
@@ -51,6 +52,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "query_made" not in st.session_state:
     st.session_state.query_made = False
+if "mode" not in st.session_state:
+    st.session_state.mode = "Connect Spotify"
 
 # --- CUSTOM CSS ---
 st.markdown("""
@@ -73,7 +76,13 @@ st.markdown("""
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("🎸 Settings")
-    mode = st.selectbox("Persona", ["My History (Tommy)", "Connect Spotify", "Guest Mode"])
+    MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
+    mode = st.selectbox(
+        "Persona",
+        MODES,
+        index=MODES.index(st.session_state.get("mode", "Connect Spotify")),
+        key="mode",
+    )
 
     if mode == "Connect Spotify":
         if st.session_state.get("sp_token"):
@@ -102,7 +111,7 @@ with st.sidebar:
         guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
         profile = {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guest_artists.split(",")}
 
-    else:  # My History (Tommy)
+    elif mode == "My History (Tommy)":
         if Path("data/artist_profile.json").exists():
             with open("data/artist_profile.json", "r") as f:
                 data = json.load(f)
