@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks
 
@@ -247,6 +247,7 @@ if user_input:
                 3. `get_distance_to_venue`: Maps travel time.
                 4. `get_venue_details`: Insider parking/vibe info.
                 5. `get_recent_setlist`: Fetch an artist's most recent setlist (songs played, venue, date). Use this when recommending a show to give the user a sense of what to expect.
+                6. `make_gcal_url`: Generate a Google Calendar "Add Event" link for a concert. Always offer this when recommending a specific show with a known date.
 
                 RULES:
                 - If a user asks for a specific small venue (like Mohawk, Hole in the Wall, Vegas), use `search_small_venue_calendar`.
@@ -267,7 +268,7 @@ if user_input:
 
                         model = genai.GenerativeModel(
                             model_name=model_name,
-                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist],
+                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist, make_gcal_url],
                             system_instruction=sys_instr
                         )
                         chat = model.start_chat(enable_automatic_function_calling=True)
@@ -341,6 +342,7 @@ if not st.session_state.query_made:
     for i, event in enumerate(ranked[:6]):
         with cols[i % 2]:
             tag = TIER_TAG.get(event['tier'], "")
+            gcal_link = make_gcal_url(event['name'], event['date'], event.get('venue', ''), event.get('url', ''))
             st.html(f"""
             <div class="concert-card">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -348,7 +350,10 @@ if not st.session_state.query_made:
                     {tag}
                 </div>
                 <div style="color: #aaa; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}</div>
-                <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>
+                <div style="display: flex; gap: 12px; margin-top: 4px;">
+                    <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>
+                    <a href="{gcal_link}" target="_blank" style="color: #4285f4; text-decoration: none; font-size: 0.85em;">📅 Add to Calendar</a>
+                </div>
             </div>
             """)
 

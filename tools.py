@@ -16,7 +16,7 @@ TICKETMASTER_API_KEY = os.getenv("TICKETMASTER_API_KEY")
 GMAPS_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 HOME_ADDRESS = os.getenv("HOME_ADDRESS", "Austin, TX")
 PROFILE_PATH = Path("data/artist_profile.json")
-SETLISTFM_API_KEY = os.getenv("SETLISTFM_API_KEY", "gVL9bICwFdNYK_ieBYDAUxbaYYDePZCjm_rz")
+SETLISTFM_API_KEY = os.getenv("SETLISTFM_API_KEY", "")
 
 # Simple file-based cache for setlist.fm (24hr TTL, stays under 1440/day limit)
 _SETLIST_CACHE_PATH = Path("data/setlist_cache.json")
@@ -199,6 +199,38 @@ def get_recent_setlist(artist_name: str):
 
     except Exception as e:
         return f"Error fetching setlist: {str(e)}"
+
+
+def make_gcal_url(event_name: str, date: str, venue: str = "", ticket_url: str = ""):
+    """
+    Generate a Google Calendar 'Add Event' URL. When a user clicks this link,
+    it opens Google Calendar pre-filled with the event details and lets them
+    save it and invite friends.
+    Example: make_gcal_url("Khruangbin", "2026-04-15", "Stubb's", "https://ticketmaster.com/...")
+    """
+    from urllib.parse import quote
+    try:
+        # Parse date and create an all-day event
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(date, "%Y-%m-%d")
+        date_str = dt.strftime("%Y%m%d")
+        end_str = (dt + timedelta(days=1)).strftime("%Y%m%d")
+    except (ValueError, TypeError):
+        date_str = ""
+        end_str = ""
+
+    title = quote(event_name)
+    location = quote(venue)
+    details = quote(f"Tickets: {ticket_url}" if ticket_url else "")
+
+    url = (
+        f"https://calendar.google.com/calendar/r/eventedit"
+        f"?text={title}"
+        f"&dates={date_str}/{end_str}"
+        f"&location={location}"
+        f"&details={details}"
+    )
+    return url
 
 
 def get_venue_details(venue_name: str):
