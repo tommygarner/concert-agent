@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url, get_presale_alerts
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks
 
@@ -153,6 +153,20 @@ with st.sidebar:
         key="rec_mode",
     )
 
+    # Presale alerts button
+    if st.button("Check Presale Alerts"):
+        with st.spinner("Scanning presales for your superfans..."):
+            alerts = get_presale_alerts(CITY)
+            st.session_state["presale_alerts"] = alerts
+    if st.session_state.get("presale_alerts"):
+        alerts_text = st.session_state["presale_alerts"]
+        if "No upcoming presales" in alerts_text or "Missing" in alerts_text or "No superfan" in alerts_text:
+            st.caption(alerts_text)
+        else:
+            st.caption("Active/upcoming presales:")
+            for line in alerts_text.split("\n"):
+                st.caption(line)
+
     st.info(f"📍 City: {CITY}")
     user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
     os.environ["HOME_ADDRESS"] = user_addr 
@@ -248,6 +262,7 @@ if user_input:
                 4. `get_venue_details`: Insider parking/vibe info.
                 5. `get_recent_setlist`: Fetch an artist's most recent setlist (songs played, venue, date). Use this when recommending a show to give the user a sense of what to expect.
                 6. `make_gcal_url`: Generate a Google Calendar "Add Event" link for a concert. Always offer this when recommending a specific show with a known date.
+                7. `get_presale_alerts`: Check for active or upcoming presale windows for the user's superfan artists. Use when user asks about presales, ticket availability, or when to buy tickets.
 
                 RULES:
                 - If a user asks for a specific small venue (like Mohawk, Hole in the Wall, Vegas), use `search_small_venue_calendar`.
@@ -268,7 +283,7 @@ if user_input:
 
                         model = genai.GenerativeModel(
                             model_name=model_name,
-                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist, make_gcal_url],
+                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist, make_gcal_url, get_presale_alerts],
                             system_instruction=sys_instr
                         )
                         chat = model.start_chat(enable_automatic_function_calling=True)

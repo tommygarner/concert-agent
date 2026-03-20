@@ -233,6 +233,97 @@ def make_gcal_url(event_name: str, date: str, venue: str = "", ticket_url: str =
     return url
 
 
+def get_presale_alerts(city: str = "Austin"):
+    """
+    Check for upcoming presale windows for the user's top artists.
+    Returns events with active or upcoming presales, including presale codes and timing.
+    Example: get_presale_alerts("Austin")
+    """
+    if not TICKETMASTER_API_KEY: return "Missing TM Key."
+    profile = load_artist_profile()
+    if not profile: return "No artist profile loaded."
+
+    superfans = [name for name, info in profile.items() if info.get('tier') == 'superfan']
+    if not superfans: return "No superfan artists found in your profile."
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    alerts = []
+
+    for artist in superfans[:10]:  # limit API calls
+        try:
+            resp = requests.get(
+                "https://app.ticketmaster.com/discovery/v2/events.json",
+                params={"apikey": TICKETMASTER_API_KEY, "keyword": artist, "city": city,
+                        "classificationName": "music", "size": 5, "sort": "date,asc"},
+                timeout=10,
+            )
+            if resp.status_code != 200: continue
+            events = resp.json().get("_embedded", {}).get("events", [])
+            for event in events:
+                sales = event.get("sales", {})
+                presales = sales.get("presales", [])
+                public_sale = sales.get("public", {})
+
+                for ps in presales:
+                    start = ps.get("startDateTime", "")
+                    end = ps.get("endDateTime", "")
+                    ps_name = ps.get("name", "Presale")
+                    try:
+                        ps_start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                        ps_end = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        continue
+
+                    # Include if presale is active now or starts within 7 days
+                    if ps_start <= now <= ps_end:
+                        status = "ACTIVE NOW"
+                    elif now < ps_start and (ps_start - now).days <= 7:
+                        status = f"Starts {ps_start.strftime('%b %d %I:%M %p')} UTC"
+                    else:
+                        continue
+
+                    venue_name = event.get("_embedded", {}).get("venues", [{}])[0].get("name", "")
+                    alerts.append({
+                        "artist": artist.title(),
+                        "event": event.get("name", ""),
+                        "venue": venue_name,
+                        "event_date": event.get("dates", {}).get("start", {}).get("localDate", ""),
+                        "presale_name": ps_name,
+                        "presale_status": status,
+                        "url": event.get("url", ""),
+                    })
+
+                # Also flag if public on-sale is upcoming
+                pub_start = public_sale.get("startDateTime", "")
+                if pub_start:
+                    try:
+                        pub_dt = datetime.fromisoformat(pub_start.replace("Z", "+00:00"))
+                        if now < pub_dt and (pub_dt - now).days <= 3:
+                            venue_name = event.get("_embedded", {}).get("venues", [{}])[0].get("name", "")
+                            alerts.append({
+                                "artist": artist.title(),
+                                "event": event.get("name", ""),
+                                "venue": venue_name,
+                                "event_date": event.get("dates", {}).get("start", {}).get("localDate", ""),
+                                "presale_name": "Public On-Sale",
+                                "presale_status": f"Starts {pub_dt.strftime('%b %d %I:%M %p')} UTC",
+                                "url": event.get("url", ""),
+                            })
+                    except (ValueError, AttributeError):
+                        pass
+        except Exception:
+            continue
+
+    if not alerts:
+        return "No upcoming presales found for your superfan artists in the next week."
+
+    lines = []
+    for a in alerts:
+        lines.append(f"[{a['presale_status']}] {a['event']} at {a['venue']} ({a['event_date']}) - {a['presale_name']} | {a['url']}")
+    return "\n".join(lines)
+
+
 def get_venue_details(venue_name: str):
     """Look up insider details from local knowledge base."""
     venue_path = Path("data/venue_knowledge.json")
