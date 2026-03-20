@@ -177,6 +177,25 @@ with st.sidebar:
         st.rerun()
 
     st.write("---")
+    st.subheader("Weekly Digest")
+    st.caption("SMS summary of upcoming shows for your artists, sent via Twilio.")
+    col_preview, col_send = st.columns(2)
+    with col_preview:
+        if st.button("Preview"):
+            from weekly_digest import build_digest
+            with st.spinner("Building digest..."):
+                msg, has_content = build_digest()
+                st.session_state["digest_preview"] = msg if has_content else "Nothing notable this week."
+    with col_send:
+        if st.button("Send Now"):
+            from weekly_digest import send_digest
+            with st.spinner("Sending SMS..."):
+                send_digest()
+                st.success("Digest sent!")
+    if st.session_state.get("digest_preview"):
+        st.code(st.session_state["digest_preview"], language=None)
+
+    st.write("---")
     st.caption("Tools: Ticketmaster, Maps, Twilio, Venue RAG, Showlist Austin")
 
 # --- MAIN UI ---
