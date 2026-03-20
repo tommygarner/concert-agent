@@ -237,7 +237,7 @@ if user_input:
                         st.warning(f"All models are busy. Starting cooldown...")
                         placeholder = st.empty()
                         for i in range(int(retry_wait), 0, -1):
-                            placeholder.markdown(f'<div class="countdown-box">🕒 Quota Cooldown: {i}s remaining</div>', unsafe_allow_html=True)
+                            placeholder.html(f'<div class="countdown-box">🕒 Quota Cooldown: {i}s remaining</div>')
                             time.sleep(1)
                         placeholder.empty()
                         st.info("🔄 Cooldown complete! Please try your query again.")
@@ -284,13 +284,13 @@ if not st.session_state.query_made:
     for i, event in enumerate(ranked[:6]):
         with cols[i % 2]:
             tag = TIER_TAG.get(event['tier'], "")
-            st.markdown(f"""
+            st.html(f"""
             <div class="concert-card">
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="font-size: 1em; font-weight: bold;">{event['name']}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 1em; font-weight: bold; color: white;">{event['name']}</span>
                     {tag}
                 </div>
-                <div style="color: #888; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}</div>
+                <div style="color: #aaa; font-size: 0.85em; margin: 4px 0;">📍 {event['venue']} | 📅 {event['date']}</div>
                 <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>
             </div>
-            """, unsafe_allow_html=True)
+            """)
