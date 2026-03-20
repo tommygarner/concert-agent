@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
-from db import get_or_create_user, get_past_shows
+from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks
 
 # Load configuration
 load_dotenv()
@@ -351,3 +351,40 @@ if not st.session_state.query_made:
                 <a href="{event['url']}" target="_blank" style="color: #1DB954; text-decoration: none; font-size: 0.85em;">Tickets →</a>
             </div>
             """)
+
+# --- ATTENDANCE LOGGING ---
+# Show attendance prompts for past events the user clicked on
+db_uid = st.session_state.get("db_user_id")
+if db_uid:
+    unconfirmed = get_unconfirmed_clicks(db_uid, days_old=0)
+    # Filter to events whose date has passed
+    from datetime import date as date_type
+    today = date_type.today()
+    past_events = []
+    for ev in unconfirmed:
+        try:
+            ev_date = date_type.fromisoformat(ev["event_date"]) if ev.get("event_date") else None
+            if ev_date and ev_date < today:
+                past_events.append(ev)
+        except (ValueError, TypeError):
+            pass
+
+    if past_events:
+        st.divider()
+        st.subheader("Did you go?")
+        st.caption("Log your attendance for past shows:")
+        for ev in past_events[:5]:
+            col1, col2, col3 = st.columns([4, 1, 1])
+            with col1:
+                st.write(f"**{ev['event_name']}** at {ev.get('venue', 'Unknown')} ({ev['event_date']})")
+            with col2:
+                if st.button("Went", key=f"went_{ev['event_id']}"):
+                    log_attendance(db_uid, ev["event_name"], ev.get("venue", ""), ev["event_date"], True)
+                    from db import mark_purchased
+                    mark_purchased(db_uid, ev["event_id"], True)
+                    st.rerun()
+            with col3:
+                if st.button("Skipped", key=f"skip_{ev['event_id']}"):
+                    log_attendance(db_uid, ev["event_name"], ev.get("venue", ""), ev["event_date"], False)
+                    mark_purchased(db_uid, ev["event_id"], False)
+                    st.rerun()
