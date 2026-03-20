@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event, add_venue_details
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks, save_message, load_chat_history, clear_chat_history
 
@@ -297,6 +297,7 @@ if user_input:
                 5. `get_recent_setlist`: Fetch an artist's most recent setlist (songs played, venue, date). Use this when recommending a show to give the user a sense of what to expect.
                 6. `make_gcal_url`: Generate a Google Calendar "Add Event" link for a concert. Always offer this when recommending a specific show with a known date.
                 7. `get_presale_alerts`: Check for active or upcoming presale windows for the user's superfan artists. Use when user asks about presales, ticket availability, or when to buy tickets.
+                8. `add_venue_details`: Add a new venue to the knowledge base with parking, age limit, vibe, and tips. Use when a user shares info about a venue not in the database.
 
                 RULES:
                 - If a user asks for a specific small venue (like Mohawk, Hole in the Wall, Vegas), use `search_small_venue_calendar`.
@@ -319,7 +320,7 @@ if user_input:
 
                         model = genai.GenerativeModel(
                             model_name=model_name,
-                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist, make_gcal_url, get_presale_alerts],
+                            tools=[search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, cached_small_venue_tool, get_recent_setlist, make_gcal_url, get_presale_alerts, add_venue_details],
                             system_instruction=sys_instr
                         )
                         chat = model.start_chat(enable_automatic_function_calling=True)
@@ -367,7 +368,8 @@ if not st.session_state.query_made:
             return requests.get(url).json().get("_embedded", {}).get("events", [])
         except: return []
 
-    events = get_picks(CITY)
+    with st.spinner("Loading upcoming shows..."):
+        events = get_picks(CITY)
     ranked = []
     for e in events:
         name = e['name']

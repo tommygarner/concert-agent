@@ -46,7 +46,8 @@ def build_digest():
         lines.append(f"SHOWS ({len(matched)} matches):")
         for c in matched[:5]:
             tier_label = f" [{c['tier'].upper()}]" if c.get("tier") else ""
-            lines.append(f"- {c['name']}{tier_label} @ {c.get('venue', '?')} on {c.get('date', 'TBD')}")
+            price_label = f" {c['price']}" if c.get("price") else ""
+            lines.append(f"- {c['name']}{tier_label} @ {c.get('venue', '?')} on {c.get('date', 'TBD')}{price_label}")
 
     if has_presales:
         lines.append("")

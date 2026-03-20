@@ -106,35 +106,66 @@ def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None
 def search_small_venue_calendar(venue_name: str):
     """
     Search showlistaustin.com for upcoming shows at a specific small venue.
+    Falls back to Ticketmaster venue search if Showlist is unreachable.
     Example: search_small_venue_calendar("Mohawk")
     """
+    # Try Showlist Austin first
+    showlist_result = _scrape_showlist(venue_name)
+    if showlist_result:
+        return showlist_result
+
+    # Fallback: search Ticketmaster for venue-specific events
+    if TICKETMASTER_API_KEY:
+        try:
+            resp = requests.get(
+                "https://app.ticketmaster.com/discovery/v2/events.json",
+                params={"apikey": TICKETMASTER_API_KEY, "keyword": venue_name,
+                        "city": "Austin", "classificationName": "music",
+                        "size": 10, "sort": "date,asc"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                events = resp.json().get("_embedded", {}).get("events", [])
+                if events:
+                    lines = [f"(via Ticketmaster, Showlist Austin unavailable)"]
+                    for e in events[:10]:
+                        date = e.get("dates", {}).get("start", {}).get("localDate", "TBD")
+                        lines.append(f"{date}: {e['name']} @ {e.get('_embedded', {}).get('venues', [{}])[0].get('name', '')}")
+                    return "\n".join(lines)
+        except Exception:
+            pass
+
+    return f"No upcoming shows found for '{venue_name}'. Showlist Austin may be down."
+
+
+def _scrape_showlist(venue_name: str):
+    """Scrape showlistaustin.com. Returns result string or None on failure."""
     try:
         response = requests.get("http://www.showlistaustin.com/", timeout=10)
-        if response.status_code != 200: return "Could not reach Showlist Austin."
-        
-        # Showlist is plain text / simple HTML
+        if response.status_code != 200:
+            return None
+
         text = response.text
-        
-        # Find all blocks of text that mention the venue
-        # Showlist format is usually: Date \n Artist @ Venue
+        if len(text) < 100:  # health check: page loaded but empty/broken
+            return None
+
         lines = text.split('\n')
         matches = []
         current_date = "Upcoming"
-        
+
         for line in lines:
-            # Check for date lines (usually starts with a day of the week)
             if any(day in line for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]):
                 current_date = line.strip()
-            
+
             if venue_name.lower() in line.lower():
                 matches.append(f"{current_date}: {line.strip()}")
-        
+
         if not matches:
             return f"No upcoming shows found for '{venue_name}' on Showlist Austin."
-        
+
         return "\n".join(matches[:15])
-    except Exception as e:
-        return f"Error searching small venues: {str(e)}"
+    except Exception:
+        return None
 
 def get_distance_to_venue(venue_address: str):
     """Calculate driving time/distance."""
@@ -381,4 +412,34 @@ def get_venue_details(venue_name: str):
     for venue in knowledge:
         if target in clean(venue['name']) or clean(venue['name']) in target:
             return f"--- {venue['name']} Info ---\n🅿️ Parking: {venue['parking']}\n🔞 Age: {venue['age_limit']}\n🎸 Vibe: {venue['vibe']}\n💡 Tips: {venue['tips']}"
-    return f"No insider info for '{venue_name}'."
+    return f"No insider info for '{venue_name}'. You can add it with add_venue_details."
+
+
+def add_venue_details(name: str, parking: str, age_limit: str, vibe: str, tips: str):
+    """Add a new venue to the local knowledge base.
+    Example: add_venue_details("Parish", "Street parking on E 6th", "18+", "Mid-size indie rock room", "Balcony has best views")
+    """
+    venue_path = Path("data/venue_knowledge.json")
+    if venue_path.exists():
+        with open(venue_path, 'r') as f:
+            knowledge = json.load(f)
+    else:
+        knowledge = []
+
+    # Check for duplicates
+    def clean(s): return "".join(filter(str.isalnum, s.lower()))
+    for existing in knowledge:
+        if clean(name) == clean(existing['name']):
+            return f"'{name}' already exists in the knowledge base."
+
+    knowledge.append({
+        "name": name,
+        "parking": parking,
+        "age_limit": age_limit,
+        "vibe": vibe,
+        "tips": tips,
+    })
+    venue_path.parent.mkdir(exist_ok=True)
+    with open(venue_path, 'w') as f:
+        json.dump(knowledge, f, indent=2)
+    return f"Added '{name}' to venue knowledge base ({len(knowledge)} venues total)."
