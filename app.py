@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile
-from spotify_auth import get_auth_url, exchange_code, build_live_profile
+from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 
 # Load configuration
 load_dotenv()
@@ -31,7 +31,9 @@ if "code" in query_params and "sp_token" not in st.session_state:
             st.session_state["sp_client"] = sp
             st.session_state["sp_user_id"] = user_id
             st.session_state["sp_display_name"] = display_name
-            st.session_state["sp_profile"] = build_live_profile(sp)
+            sp_profile, sp_artist_ids = build_live_profile(sp)
+            st.session_state["sp_profile"] = sp_profile
+            st.session_state["sp_artist_ids"] = sp_artist_ids
             st.session_state["sp_token"] = True
             st.session_state["mode"] = "Connect Spotify"
             st.query_params.clear()
@@ -130,6 +132,13 @@ with st.sidebar:
             profile = {}
 
     st.divider()
+    rec_mode = st.radio(
+        "Recommendation Mode",
+        ["Superfan", "Discovery"],
+        help="Superfan: only shows for artists you know and love. Discovery: includes artists similar to your superfans.",
+        key="rec_mode",
+    )
+
     st.info(f"📍 City: {CITY}")
     user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
     os.environ["HOME_ADDRESS"] = user_addr 
@@ -149,7 +158,9 @@ if not st.session_state.query_made:
 
 # --- PROFILE CONTEXT ---
 def get_profile_context():
-    # Use live Spotify profile if connected, otherwise fall back to file
+    rec_mode = st.session_state.get("rec_mode", "Superfan")
+
+    # Build base lists from whichever profile source is active
     if st.session_state.get("sp_token") and st.session_state.get("sp_profile"):
         live = st.session_state["sp_profile"]
         sorted_artists = sorted(live.items(), key=lambda x: x[1]["score"], reverse=True)[:30]
@@ -166,9 +177,30 @@ def get_profile_context():
 
     ctx = ""
     if superfans:
-        ctx += f"SUPERFANS (highest priority — always flag these shows): {', '.join(superfans)}. "
+        ctx += f"SUPERFANS (always flag these shows): {', '.join(superfans)}. "
     if fans:
-        ctx += f"FANS (strong interest): {', '.join(fans[:15])}."
+        ctx += f"FANS (strong interest): {', '.join(fans[:15])}. "
+
+    if rec_mode == "Discovery":
+        # For Spotify-connected users, fetch Spotify-derived related artists
+        sp = st.session_state.get("sp_client")
+        artist_ids = st.session_state.get("sp_artist_ids", {})
+        if sp and artist_ids:
+            profile = st.session_state.get("sp_profile", {})
+            discovery = get_related_artists(sp, artist_ids, profile)
+        else:
+            # Fall back to instructing the agent to reason about similar artists
+            discovery = []
+
+        if discovery:
+            ctx += f"DISCOVERY TARGETS (artists similar to your superfans — actively search for their shows): {', '.join(discovery)}. "
+        ctx += (
+            "MODE: Discovery — surface shows for both the user's known artists AND the discovery targets above. "
+            "For each discovery recommendation, briefly explain the connection to a superfan artist they know."
+        )
+    else:
+        ctx += "MODE: Superfan — only recommend shows for the user's known artists. Do not suggest artists they haven't heard of."
+
     return ctx
 
 # --- CHAT DISPLAY ---
