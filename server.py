@@ -3,6 +3,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from pathlib import Path
+from tools import match_artist_to_event
 
 load_dotenv()
 
@@ -61,19 +62,11 @@ def core_search_concerts(keyword: str = None, city: str = CITY):
         date = event.get("dates", {}).get("start", {}).get("localDate")
         url = event.get("url")
         
-        score = 0
-        tier = None
-        matching_artist = None
-        for artist, info in profile.items():
-            if artist in name.lower():
-                score = info['score']
-                tier = info['tier']
-                matching_artist = artist
-                break
+        score, tier = match_artist_to_event(name, profile)
 
         results.append({
             "name": name, "venue": venue, "date": date,
-            "url": url, "score": score, "tier": tier, "matched_artist": matching_artist
+            "url": url, "score": score, "tier": tier
         })
 
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)

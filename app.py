@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from dotenv import load_dotenv
 import google.generativeai as genai
-from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url, get_presale_alerts
+from tools import search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details, search_small_venue_calendar, load_artist_profile, get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import get_or_create_user, get_past_shows, log_attendance, get_unconfirmed_clicks
 
@@ -332,14 +332,8 @@ if not st.session_state.query_made:
     events = get_picks(CITY)
     ranked = []
     for e in events:
-        score = 0
-        tier = None
         name = e['name']
-        for art, info in profile.items():
-            if art in name.lower():
-                score = info['score']
-                tier = info['tier']
-                break
+        score, tier = match_artist_to_event(name, profile)
         ranked.append({
             "name": name, "venue": e['_embedded']['venues'][0]['name'],
             "date": e['dates']['start'].get('localDate', 'TBD'),

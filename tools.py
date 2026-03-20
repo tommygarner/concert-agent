@@ -8,6 +8,7 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 from pathlib import Path
 from bs4 import BeautifulSoup
+from thefuzz import fuzz
 
 load_dotenv()
 
@@ -33,6 +34,23 @@ def _load_setlist_cache():
 def _save_setlist_cache(cache):
     _SETLIST_CACHE_PATH.parent.mkdir(exist_ok=True)
     _SETLIST_CACHE_PATH.write_text(json.dumps(cache))
+
+def match_artist_to_event(event_name: str, profile: dict, threshold: int = 75):
+    """Fuzzy-match an event name against the artist profile. Returns (score, tier) or (0, None)."""
+    event_lower = event_name.lower()
+    best_score, best_tier, best_match = 0, None, 0
+    for artist, info in profile.items():
+        # Fast path: exact substring match
+        if artist in event_lower:
+            return info['score'], info['tier']
+        # Fuzzy: compare artist name against event name tokens
+        ratio = fuzz.partial_ratio(artist, event_lower)
+        if ratio >= threshold and info['score'] > best_match:
+            best_score = info['score']
+            best_tier = info['tier']
+            best_match = info['score']
+    return best_score, best_tier
+
 
 def load_artist_profile():
     """Returns {artist_name_lower: {'score': float, 'tier': str}}"""
@@ -62,13 +80,7 @@ def search_concerts(keyword: str = None, city: str = "Austin"):
     for event in events:
         name = event.get("name")
         v_info = event.get("_embedded", {}).get("venues", [{}])[0]
-        score = 0
-        tier = None
-        for artist, info in profile.items():
-            if artist in name.lower():
-                score = info['score']
-                tier = info['tier']
-                break
+        score, tier = match_artist_to_event(name, profile)
         results.append({
             "name": name, "venue": v_info.get("name"), "address": v_info.get("address", {}).get("line1", ""),
             "date": event.get("dates", {}).get("start", {}).get("localDate"),
