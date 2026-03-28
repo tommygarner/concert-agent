@@ -168,8 +168,80 @@ def _fetch_side_by_side():
         return []
 
 
+def _parse_do512_event(e):
+    """Parse a single event dict from the do512.com JSON API."""
+    try:
+        permalink = e.get("permalink", "")
+        date_str = e.get("begin_date", "")
+        if not date_str:
+            m = re.search(r'/events/(\d{4})/(\d+)/(\d+)/', permalink)
+            if m:
+                y, mo, d = m.groups()
+                date_str = f"{y}-{int(mo):02d}-{int(d):02d}"
+
+        venue = e.get("venue") or {}
+        buy_url = e.get("buy_url", "")
+        if not buy_url:
+            buy_url = f"https://do512.com{permalink}"
+
+        artists = [a.get("title", "") for a in (e.get("artists") or []) if a.get("title")]
+
+        return {
+            "name": e.get("title", ""),
+            "venue": venue.get("title", "") if isinstance(venue, dict) else "",
+            "venue_address": venue.get("full_address", "") if isinstance(venue, dict) else "",
+            "date": date_str,
+            "time": e.get("begin_time", ""),
+            "ticket_info": e.get("ticket_info", ""),
+            "category": e.get("category", ""),
+            "artists": artists,
+            "url": buy_url,
+            "do512_url": f"https://do512.com{permalink}",
+            "is_free": e.get("is_free", False),
+            "sold_out": e.get("sold_out", False),
+            "do512_id": e.get("id"),
+            "source": "Do512",
+        }
+    except Exception:
+        return None
+
+
+def _fetch_do512_day(session, date_str):
+    """Fetch all events for a specific date from the do512.com JSON API. Returns list of event dicts."""
+    from datetime import datetime
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return []
+
+    base_url = f"https://do512.com/events/{dt.year}/{dt.month}/{dt.day}.json"
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    events = []
+    page = 1
+    while True:
+        try:
+            params = {} if page == 1 else {"page": page}
+            resp = session.get(base_url, params=params, headers=headers, timeout=12)
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            for e in data.get("events", []):
+                parsed = _parse_do512_event(e)
+                if parsed:
+                    events.append(parsed)
+            paging = data.get("paging", {})
+            if page >= paging.get("total_pages", 1):
+                break
+            page += 1
+        except Exception:
+            break
+    return events
+
+
 def _fetch_do512():
-    """Fetch and cache upcoming music events from do512.com. Returns list of event dicts."""
+    """Fetch and cache upcoming music events from do512.com.
+    Uses the JSON API to cover today through 90 days ahead (parallel day requests).
+    Returns list of event dicts."""
     if _DO512_CACHE_PATH.exists():
         try:
             cache = json.loads(_DO512_CACHE_PATH.read_text())
@@ -178,59 +250,26 @@ def _fetch_do512():
         except Exception:
             pass
 
+    from datetime import datetime, timedelta
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    today = datetime.today()
+    dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(90)]
+
+    session = requests.Session()
+    seen_ids = set()
     events = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-    for page in range(1, 4):
-        try:
-            params = {"category": "music"}
-            if page > 1:
-                params["page"] = page
-            resp = requests.get("https://do512.com/events", params=params, headers=headers, timeout=15)
-            if resp.status_code != 200:
-                break
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(_fetch_do512_day, session, d): d for d in dates}
+        for future in as_completed(futures):
+            for evt in future.result():
+                key = (evt["name"], evt["date"])
+                if key not in seen_ids:
+                    seen_ids.add(key)
+                    events.append(evt)
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            listings = soup.select("div.ds-listing")
-            if not listings:
-                break
-
-            for listing in listings:
-                try:
-                    title_el = listing.select_one("span.ds-listing-event-title-text")
-                    link_el = listing.select_one("a.ds-listing-event-title")
-                    if not title_el or not link_el:
-                        continue
-
-                    name = title_el.get_text(strip=True)
-                    href = link_el.get("href", "")
-                    ticket_url = f"https://do512.com{href}" if href.startswith("/") else href
-
-                    date_match = re.search(r'/events/(\d{4})/(\d+)/(\d+)/', href)
-                    date_str = ""
-                    if date_match:
-                        y, m, d = date_match.groups()
-                        date_str = f"{y}-{int(m):02d}-{int(d):02d}"
-
-                    # Venue link is the most reliable selector (href contains /venues/)
-                    venue_link = listing.select_one("a[href*='/venues/']")
-                    venue_name_str = venue_link.get_text(strip=True) if venue_link else ""
-
-                    time_el = listing.select_one("div.ds-event-time")
-                    time_str = time_el.get_text(strip=True) if time_el else ""
-
-                    events.append({
-                        "name": name,
-                        "venue": venue_name_str,
-                        "date": date_str,
-                        "time": time_str,
-                        "url": ticket_url,
-                        "source": "Do512",
-                    })
-                except Exception:
-                    continue
-        except Exception:
-            break
+    events.sort(key=lambda x: x.get("date", ""))
 
     if events:
         _DO512_CACHE_PATH.parent.mkdir(exist_ok=True)
@@ -251,14 +290,18 @@ def search_do512():
 
     scored = []
     for evt in events:
-        score, tier = match_artist_to_event(evt["name"], profile)
+        # Match against event name + all artists listed
+        search_str = evt["name"] + " " + " ".join(evt.get("artists", []))
+        score, tier = match_artist_to_event(search_str, profile)
         scored.append((score, tier, evt))
     scored.sort(key=lambda x: x[0], reverse=True)
 
     lines = []
     for score, tier, evt in scored:
         tier_tag = f" [{tier.upper()}]" if tier else ""
-        lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']} — {evt['url']}{tier_tag}")
+        price = evt.get("ticket_info", "")
+        price_str = f" [{price}]" if price else ""
+        lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']}{price_str} — {evt['url']}{tier_tag}")
 
     matched = [l for l in lines if any(t in l for t in ["[SUPERFAN]", "[FAN]", "[CASUAL]"])]
     unmatched = [l for l in lines if l not in matched]
@@ -299,8 +342,10 @@ def search_small_venue_calendar(venue_name: str):
     do512_lines = []
     if do512_events:
         for evt in do512_events:
-            if vl in evt["venue"].lower() or vl in evt["name"].lower():
-                do512_lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']} — {evt['url']}")
+            if vl in evt.get("venue", "").lower() or vl in evt["name"].lower():
+                price = evt.get("ticket_info", "")
+                price_str = f" [{price}]" if price else ""
+                do512_lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']}{price_str} — {evt['url']}")
 
     # Merge results
     if showlist_result and not showlist_result.startswith("No upcoming"):
