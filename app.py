@@ -319,6 +319,7 @@ RULES:
                                 match = re.search(r"retry in (\d+\.?\d*)s", err_str)
                                 if match:
                                     retry_wait = max(retry_wait, float(match.group(1)))
+                                time.sleep(5)  # brief pause before trying next model
                                 continue
                             elif "404" in err_str:
                                 continue
