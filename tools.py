@@ -23,6 +23,10 @@ SETLISTFM_API_KEY = os.getenv("SETLISTFM_API_KEY", "")
 _SETLIST_CACHE_PATH = Path("data/setlist_cache.json")
 _SETLIST_CACHE_TTL = 86400  # 24 hours in seconds
 
+# Side By Side Shows cache (6hr TTL)
+_SBS_CACHE_PATH = Path("data/sbs_cache.json")
+_SBS_CACHE_TTL = 21600  # 6 hours
+
 def _load_setlist_cache():
     if _SETLIST_CACHE_PATH.exists():
         try:
@@ -103,16 +107,93 @@ def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)
     return results[:10]
 
+def _fetch_side_by_side():
+    """Fetch and cache events from sidebysideshows.com. Returns list of event dicts."""
+    # Check cache
+    if _SBS_CACHE_PATH.exists():
+        try:
+            cache = json.loads(_SBS_CACHE_PATH.read_text())
+            if time.time() - cache.get("cached_at", 0) < _SBS_CACHE_TTL:
+                return cache.get("events", [])
+        except Exception:
+            pass
+
+    try:
+        resp = requests.get("https://sidebysideshows.com/", timeout=15)
+        if resp.status_code != 200:
+            return []
+
+        # Extract initialShows JSON from Next.js __next_f payload
+        # Data may be escaped (\" instead of ") inside a script string
+        match = re.search(r'initialShows\\?":\s*(\[.*?\])\s*,\s*\\?"initialSelectedDate', resp.text, re.DOTALL)
+        if not match:
+            return []
+
+        raw = match.group(1)
+        # Unescape if the JSON was inside an escaped string
+        if '\\"' in raw:
+            raw = raw.replace('\\"', '"')
+        shows = json.loads(raw)
+        events = []
+        for show in shows:
+            artists = []
+            for stage in show.get("stages", []):
+                for artist in stage.get("artists", []):
+                    artists.append(artist.get("name", ""))
+
+            venue = show.get("venue", {})
+            price = show.get("price", "")
+            events.append({
+                "name": show.get("name", ""),
+                "artists": artists,
+                "venue": venue.get("name", ""),
+                "address": venue.get("street", ""),
+                "date": show.get("date", ""),
+                "time": show.get("time", ""),
+                "price": f"${price}" if price and price != "0.00" else "Free/TBD",
+                "url": show.get("tickets_link", f"https://sidebysideshows.com{show.get('path', '')}"),
+                "source": "Side By Side Shows",
+            })
+
+        # Cache results
+        _SBS_CACHE_PATH.parent.mkdir(exist_ok=True)
+        _SBS_CACHE_PATH.write_text(json.dumps({"events": events, "cached_at": time.time()}))
+        return events
+    except Exception:
+        return []
+
+
 def search_small_venue_calendar(venue_name: str):
     """
-    Search showlistaustin.com for upcoming shows at a specific small venue.
-    Falls back to Ticketmaster venue search if Showlist is unreachable.
+    Search indie/small venue shows from Showlist Austin AND Side By Side Shows.
+    If venue_name is provided, filters results to that venue.
+    Falls back to Ticketmaster if both indie sources are unavailable.
     Example: search_small_venue_calendar("Mohawk")
     """
-    # Try Showlist Austin first
+    results = []
+
+    # Source 1: Showlist Austin
     showlist_result = _scrape_showlist(venue_name)
-    if showlist_result:
-        return showlist_result
+
+    # Source 2: Side By Side Shows
+    sbs_events = _fetch_side_by_side()
+    sbs_lines = []
+    if sbs_events:
+        for evt in sbs_events:
+            if venue_name.lower() in evt["venue"].lower() or venue_name.lower() in evt["name"].lower():
+                artists_str = ", ".join(evt["artists"][:5]) if evt["artists"] else evt["name"]
+                sbs_lines.append(f"{evt['date']}: {artists_str} @ {evt['venue']} [{evt['price']}]")
+
+    # Merge results
+    if showlist_result and not showlist_result.startswith("No upcoming"):
+        results.append("=== Showlist Austin ===")
+        results.append(showlist_result)
+    if sbs_lines:
+        results.append("=== Side By Side Shows ===")
+        results.extend(sbs_lines[:15])
+
+    if results:
+        return "\n".join(results)
 
     # Fallback: search Ticketmaster for venue-specific events
     if TICKETMASTER_API_KEY:
@@ -127,7 +208,7 @@ def search_small_venue_calendar(venue_name: str):
             if resp.status_code == 200:
                 events = resp.json().get("_embedded", {}).get("events", [])
                 if events:
-                    lines = [f"(via Ticketmaster, Showlist Austin unavailable)"]
+                    lines = [f"(via Ticketmaster, indie sources unavailable)"]
                     for e in events[:10]:
                         date = e.get("dates", {}).get("start", {}).get("localDate", "TBD")
                         lines.append(f"{date}: {e['name']} @ {e.get('_embedded', {}).get('venues', [{}])[0].get('name', '')}")
@@ -135,7 +216,41 @@ def search_small_venue_calendar(venue_name: str):
         except Exception:
             pass
 
-    return f"No upcoming shows found for '{venue_name}'. Showlist Austin may be down."
+    return f"No upcoming shows found for '{venue_name}'."
+
+
+def search_side_by_side():
+    """
+    Browse all upcoming indie/niche shows from Side By Side Shows (sidebysideshows.com).
+    Returns all Austin events with artist names, venues, dates, and prices.
+    Use this to discover niche artists and small venue shows beyond Ticketmaster.
+    """
+    profile = load_artist_profile()
+    events = _fetch_side_by_side()
+    if not events:
+        return "Side By Side Shows is currently unavailable. Try search_small_venue_calendar instead."
+
+    lines = []
+    for evt in events:
+        all_names = " ".join(evt["artists"]) if evt["artists"] else evt["name"]
+        score, tier = match_artist_to_event(all_names, profile)
+        tier_tag = f" [{tier.upper()}]" if tier else ""
+        artists_str = ", ".join(evt["artists"][:5]) if evt["artists"] else evt["name"]
+        lines.append(f"{evt['date']}: {artists_str} @ {evt['venue']} [{evt['price']}]{tier_tag}")
+
+    if not lines:
+        return "No upcoming events found on Side By Side Shows."
+
+    matched = [l for l in lines if any(t in l for t in ["[SUPERFAN]", "[FAN]", "[CASUAL]"])]
+    unmatched = [l for l in lines if l not in matched]
+
+    result = []
+    if matched:
+        result.append(f"=== Matched to your profile ({len(matched)} shows) ===")
+        result.extend(matched)
+    result.append(f"\n=== All indie shows ({len(unmatched)} more) ===")
+    result.extend(unmatched[:30])
+    return "\n".join(result)
 
 
 def _scrape_showlist(venue_name: str):

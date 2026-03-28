@@ -7,7 +7,7 @@ from tools import (
     match_artist_to_event, search_concerts as tools_search_concerts,
     get_venue_details, get_recent_setlist, make_gcal_url,
     get_presale_alerts, get_distance_to_venue, search_small_venue_calendar,
-    load_artist_profile
+    search_side_by_side as tools_search_side_by_side, load_artist_profile
 )
 
 load_dotenv()
@@ -51,8 +51,13 @@ try:
 
     @mcp.tool()
     def small_venue_calendar(venue_name: str):
-        """Search Showlist Austin for upcoming shows at a specific small venue."""
+        """Search indie/small venue shows from Showlist Austin + Side By Side Shows."""
         return search_small_venue_calendar(venue_name)
+
+    @mcp.tool()
+    def side_by_side_shows():
+        """Browse all upcoming indie/niche shows from sidebysideshows.com, ranked by listening history."""
+        return tools_search_side_by_side()
 
     if __name__ == "__main__":
         mcp.run(transport="stdio")

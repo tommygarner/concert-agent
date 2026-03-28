@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import (
     search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details,
-    search_small_venue_calendar, load_artist_profile, get_recent_setlist,
-    make_gcal_url, get_presale_alerts, match_artist_to_event, add_venue_details,
+    search_small_venue_calendar, search_side_by_side, load_artist_profile,
+    get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event,
+    add_venue_details,
 )
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import (
@@ -78,25 +79,18 @@ if "mode" not in st.session_state:
     st.session_state.mode = "Connect Spotify"
 
 # ---------- CSS ----------
-st.markdown("""
-<style>
-.concert-card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; margin-bottom: 8px; background-color: #1a1c24; color: white !important; }
-.concert-card span { color: white !important; }
-.concert-card div { color: #ccc !important; }
-.match-tag { background-color: #1DB954; color: black !important; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75em; }
-.countdown-box { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; border: 1px solid #ffeeba; margin: 10px 0; font-weight: bold; text-align: center; }
-div[data-testid="stSidebarNav"] { display: none; }
-</style>
-""", unsafe_allow_html=True)
+with open(Path(__file__).parent / "styles.css") as _css:
+    st.markdown(f"<style>{_css.read()}</style>", unsafe_allow_html=True)
 
 TIER_TAG = {
-    'superfan': "<span class='match-tag' style='background:#ff6b35;color:white;'>SUPERFAN</span>",
-    'fan': "<span class='match-tag'>FAN</span>",
+    'superfan': "<span class='tier-pill superfan'>Superfan</span>",
+    'fan': "<span class='tier-pill fan'>Fan</span>",
+    'casual': "<span class='tier-pill casual'>Casual</span>",
 }
 
 # ---------- Sidebar ----------
 with st.sidebar:
-    st.title("🎸 Concert Agent")
+    st.title("Concert Agent")
     profile = {}
 
     MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
@@ -210,17 +204,23 @@ def get_profile_context():
 def render_concert_card(event):
     tag = TIER_TAG.get(event.get('tier'), "")
     gcal_link = make_gcal_url(event['name'], event.get('date', ''), event.get('venue', ''), event.get('url', ''))
-    price_bit = f" | {event['price']}" if event.get('price') else ""
+    venue = event.get('venue', '')
+    date = event.get('date', 'TBD')
+    price = event.get('price', '')
+    meta_parts = [venue, date]
+    if price:
+        meta_parts.append(price)
+    meta_str = " &middot; ".join(p for p in meta_parts if p)
     st.html(f"""
     <div class="concert-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:1em;font-weight:bold;color:white;">{event['name']}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span class="card-artist">{event['name']}</span>
             {tag}
         </div>
-        <div style="color:#aaa;font-size:0.85em;margin:4px 0;">📍 {event.get('venue','')} | 📅 {event.get('date','TBD')}{price_bit}</div>
-        <div style="display:flex;gap:12px;margin-top:4px;">
-            <a href="{event.get('url','#')}" target="_blank" style="color:#1DB954;text-decoration:none;font-size:0.85em;">Tickets</a>
-            <a href="{gcal_link}" target="_blank" style="color:#4285f4;text-decoration:none;font-size:0.85em;">Add to Calendar</a>
+        <div class="card-meta">{meta_str}</div>
+        <div class="card-links">
+            <a href="{event.get('url','#')}" target="_blank" class="ticket-link">Tickets &rarr;</a>
+            <a href="{gcal_link}" target="_blank" class="cal-link">+ Calendar</a>
         </div>
     </div>
     """)
@@ -257,25 +257,34 @@ USER TASTE: {profile_ctx}
 
 TOOLS:
 1. search_concerts: Ticketmaster. Supports genre, start_date, end_date. Returns prices.
-2. search_small_venue_calendar: Showlist Austin indie/small venues.
-3. get_distance_to_venue: Driving time from home.
-4. get_venue_details: Parking, vibe, age limits.
-5. get_recent_setlist: Recent setlist from setlist.fm.
-6. make_gcal_url: Google Calendar link for a show.
-7. get_presale_alerts: Active/upcoming presales for superfan artists.
-8. add_venue_details: Add new venue to knowledge base.
+2. search_small_venue_calendar: Indie/small venue shows from Showlist Austin + Side By Side Shows. Requires a venue name.
+3. search_side_by_side: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed. Great for discovering niche artists.
+4. get_distance_to_venue: Driving time from home.
+5. get_venue_details: Parking, vibe, age limits.
+6. get_recent_setlist: Recent setlist from setlist.fm.
+7. make_gcal_url: Google Calendar link for a show.
+8. get_presale_alerts: Active/upcoming presales for superfan artists.
+9. add_venue_details: Add new venue to knowledge base.
 
 RULES:
-- For small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar.
+- For specific small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar.
+- For browsing all indie/niche shows (no specific venue), use search_side_by_side.
 - If Ticketmaster returns nothing, fall back to search_small_venue_calendar.
 - When recommending a known artist's show, call get_recent_setlist.
 - Use price field when user asks about budget.
 - Use start_date/end_date when user asks about time ranges.
-- Be proactive with distances and calendar links. NO LaTeX."""
+- Be proactive with distances and calendar links. NO LaTeX.
+- EFFICIENCY: When answering a query, call all needed tools in a single round when possible (e.g., search_concerts + get_presale_alerts together) rather than one at a time. Minimize total API round-trips."""
 
-                    models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite-001', 'gemini-pro-latest', 'gemini-flash-latest']
+                    models = ['gemini-2.0-flash-lite-001', 'gemini-2.0-flash', 'gemini-flash-latest']
                     success = False
                     retry_wait = 0
+
+                    # Throttle: enforce minimum 2s between Gemini API calls
+                    if "last_gemini_call" in st.session_state:
+                        elapsed = time.time() - st.session_state.last_gemini_call
+                        if elapsed < 2.0:
+                            time.sleep(2.0 - elapsed)
 
                     for model_name in models:
                         try:
@@ -285,11 +294,13 @@ RULES:
                             model = genai.GenerativeModel(
                                 model_name=model_name,
                                 tools=[search_concerts, get_distance_to_venue, send_concert_sms,
-                                       get_venue_details, cached_small_venue_tool, get_recent_setlist,
-                                       make_gcal_url, get_presale_alerts, add_venue_details],
+                                       get_venue_details, cached_small_venue_tool, search_side_by_side,
+                                       get_recent_setlist, make_gcal_url, get_presale_alerts,
+                                       add_venue_details],
                                 system_instruction=sys_instr,
                             )
                             chat = model.start_chat(enable_automatic_function_calling=True)
+                            st.session_state.last_gemini_call = time.time()
                             response = chat.send_message(user_input)
                             clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)
                             st.markdown(clean_text)
@@ -389,11 +400,10 @@ with tab_presales:
             st.info(alerts_text)
         else:
             for line in alerts_text.strip().split("\n"):
-                # Parse the alert line for nicer display
                 if line.startswith("[ACTIVE NOW]"):
-                    st.success(line)
+                    st.html(f'<div class="presale-active">{line}</div>')
                 elif line.startswith("[Starts"):
-                    st.warning(line)
+                    st.html(f'<div class="presale-upcoming">{line}</div>')
                 else:
                     st.write(line)
     else:
