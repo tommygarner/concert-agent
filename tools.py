@@ -75,7 +75,8 @@ def load_artist_profile():
     }
 
 def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None, start_date: str = None, end_date: str = None):
-    """Search major concerts via Ticketmaster, ranked by listener affinity tier.
+    """Search concerts via Ticketmaster ranked by listener affinity. Automatically falls back to
+    Do512 when Ticketmaster has no results for a keyword search (catches indie/mid-size acts).
     Optional filters: genre (e.g. 'rock', 'jazz', 'hip-hop'), start_date and end_date (YYYY-MM-DD)."""
     if not TICKETMASTER_API_KEY: return "Missing TM Key."
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
@@ -107,9 +108,33 @@ def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None
         results.append({
             "name": name, "venue": v_info.get("name"), "address": v_info.get("address", {}).get("line1", ""),
             "date": event.get("dates", {}).get("start", {}).get("localDate"),
-            "url": event.get("url"), "score": score, "tier": tier, "price": price_str
+            "url": event.get("url"), "score": score, "tier": tier, "price": price_str,
+            "source": "Ticketmaster",
         })
     results.sort(key=lambda x: (x["score"], x["date"] if x["date"] else ""), reverse=True)
+
+    # If a keyword was given but Ticketmaster found nothing, automatically check Do512
+    if keyword and not results:
+        kw_lower = keyword.lower()
+        do512_events = _fetch_do512()
+        for evt in do512_events:
+            evt_name_lower = evt.get("name", "").lower()
+            artists_lower = " ".join(evt.get("artists", [])).lower()
+            if kw_lower in evt_name_lower or kw_lower in artists_lower or \
+               fuzz.token_set_ratio(kw_lower, evt_name_lower) >= 85:
+                score, tier = match_artist_to_event(evt["name"], profile)
+                results.append({
+                    "name": evt["name"],
+                    "venue": evt.get("venue", ""),
+                    "address": evt.get("venue_address", ""),
+                    "date": evt.get("date", ""),
+                    "url": evt.get("url", ""),
+                    "score": score, "tier": tier,
+                    "price": evt.get("ticket_info", ""),
+                    "source": "Do512",
+                })
+        results.sort(key=lambda x: x["date"] if x["date"] else "")
+
     return results[:10]
 
 def _fetch_side_by_side():
