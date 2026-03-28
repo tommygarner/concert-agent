@@ -214,6 +214,10 @@ def _parse_do512_event(e):
 
         artists = [a.get("title", "") for a in (e.get("artists") or []) if a.get("title")]
 
+        imagery = e.get("imagery") or {}
+        aws = imagery.get("aws") or {}
+        image_url = aws.get("poster_w_400") or aws.get("poster_w_800") or aws.get("cover_image_h_300_w_864") or ""
+
         return {
             "name": e.get("title", ""),
             "venue": venue.get("title", "") if isinstance(venue, dict) else "",
@@ -223,6 +227,7 @@ def _parse_do512_event(e):
             "ticket_info": e.get("ticket_info", ""),
             "category": e.get("category", ""),
             "artists": artists,
+            "image_url": image_url,
             "url": buy_url,
             "do512_url": f"https://do512.com{permalink}",
             "is_free": e.get("is_free", False),

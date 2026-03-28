@@ -12,7 +12,7 @@ from tools import (
     search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details,
     search_small_venue_calendar, search_side_by_side, search_do512, load_artist_profile,
     get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event,
-    add_venue_details,
+    add_venue_details, _fetch_do512, _load_setlist_cache,
 )
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import (
@@ -24,6 +24,7 @@ from db import (
 load_dotenv()
 TICKETMASTER_API_KEY = st.secrets.get("TICKETMASTER_API_KEY", os.getenv("TICKETMASTER_API_KEY"))
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+GMAPS_KEY = st.secrets.get("GOOGLE_MAPS_API_KEY", os.getenv("GOOGLE_MAPS_API_KEY"))
 CITY = os.getenv("CITY", "Austin")
 
 _genai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -53,22 +54,6 @@ if "code" in query_params and "sp_token" not in st.session_state:
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
 
 # ---------- Cached helpers ----------
-# Named to match what Gemini calls — must match tool name in system prompt
-@st.cache_data(ttl=3600)
-def search_small_venue_calendar_cached(venue_name: str):
-    """Search indie/small venue shows from Showlist Austin + Side By Side Shows."""
-    return search_small_venue_calendar(venue_name)
-
-@st.cache_data(ttl=3600)
-def search_side_by_side_cached():
-    """Browse all upcoming indie/niche shows from sidebysideshows.com."""
-    return search_side_by_side()
-
-@st.cache_data(ttl=3600)
-def search_do512_cached():
-    """Browse all upcoming Austin music events from do512.com. Covers indie and mid-size acts not on Ticketmaster."""
-    return search_do512()
-
 @st.cache_data(ttl=3600)
 def get_picks(city):
     if not TICKETMASTER_API_KEY:
@@ -238,6 +223,149 @@ def render_concert_card(event):
     """)
 
 
+# ---------- Rich card helpers ----------
+def _find_events_in_text(text, do512_events):
+    """Find do512 events whose names appear in the agent response text. Returns up to 3."""
+    text_lower = text.lower()
+    matched, seen = [], set()
+    for evt in do512_events:
+        name = evt.get("name", "")
+        if not name or name in seen:
+            continue
+        if name.lower() in text_lower:
+            seen.add(name)
+            matched.append(evt)
+    return matched[:3]
+
+def _get_setlist_snippet(artist_name):
+    """Return first 4 songs from the setlist cache, or empty string."""
+    cache = _load_setlist_cache()
+    entry = cache.get(artist_name.lower().strip(), {})
+    result = entry.get("result", "")
+    if not result:
+        return ""
+    m = re.search(r'Set \(\d+ songs\): (.+?)(?:\.\s|$)', result)
+    if m:
+        songs = [s.strip() for s in m.group(1).split(",")][:4]
+        return ", ".join(songs)
+    return ""
+
+def _get_presale_info(artist_name):
+    """Return 'active', 'upcoming', or '' based on presale cache."""
+    presale_path = Path("data/presale_cache.json")
+    if not presale_path.exists():
+        return ""
+    try:
+        cache = json.loads(presale_path.read_text())
+        result = cache.get("result", "")
+        artist_lower = artist_name.lower()
+        if artist_lower not in result.lower():
+            return ""
+        for line in result.split("\n"):
+            if artist_lower in line.lower():
+                return "active" if "ACTIVE NOW" in line else "upcoming"
+    except Exception:
+        pass
+    return ""
+
+def render_rich_card(evt, current_profile):
+    from urllib.parse import quote
+    from datetime import datetime as _dt
+
+    name = evt.get("name", "")
+    venue = evt.get("venue", "")
+    address = evt.get("venue_address", "") or evt.get("address", "")
+    date_raw = evt.get("date", "")
+    price = evt.get("ticket_info", "") or evt.get("price", "")
+    ticket_url = evt.get("url", "#")
+    image_url = evt.get("image_url", "")
+
+    _, tier = match_artist_to_event(name, current_profile)
+    tier_tag = TIER_TAG.get(tier, "")
+
+    # Date
+    date_display = date_raw
+    try:
+        dt = _dt.strptime(date_raw, "%Y-%m-%d")
+        date_display = f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+    except Exception:
+        pass
+
+    meta_parts = [p for p in [venue, date_display, price] if p]
+    meta_str = " &middot; ".join(meta_parts)
+
+    # Setlist
+    setlist = _get_setlist_snippet(name)
+    setlist_html = (
+        f'<div class="card-setlist"><span class="card-setlist-label">Last setlist:</span> {setlist}</div>'
+        if setlist else ""
+    )
+
+    # Presale badge
+    ps = _get_presale_info(name)
+    presale_html = ""
+    if ps == "active":
+        presale_html = '<div class="presale-badge">Presale active now</div>'
+    elif ps == "upcoming":
+        presale_html = '<div class="presale-badge upcoming">Presale coming soon</div>'
+
+    # Poster image
+    img_html = (
+        f'<div class="rich-card-img"><img src="{image_url}" alt="{name}" /></div>'
+        if image_url else ""
+    )
+
+    # Map
+    map_query = address if address else (f"{venue}, Austin, TX" if venue else "")
+    map_html = ""
+    if map_query:
+        gmaps_link = f"https://www.google.com/maps/search/?api=1&query={quote(map_query)}"
+        if GMAPS_KEY:
+            enc = quote(map_query)
+            map_src = (
+                f"https://maps.googleapis.com/maps/api/staticmap"
+                f"?center={enc}&zoom=15&size=600x150"
+                f"&markers=color:0xC44D2B%7C{enc}&key={GMAPS_KEY}"
+            )
+            map_html = (
+                f'<div class="rich-card-map">'
+                f'<a href="{gmaps_link}" target="_blank">'
+                f'<img src="{map_src}" alt="Map of {venue}" /></a></div>'
+            )
+        else:
+            map_html = (
+                f'<div style="padding:8px 15px;border-top:1px solid #E5E5E3">'
+                f'<a href="{gmaps_link}" target="_blank" '
+                f'style="font-size:0.78rem;font-weight:600;color:#2D5F8A;'
+                f'text-transform:uppercase;letter-spacing:0.04em;text-decoration:none">'
+                f'View on Google Maps</a></div>'
+            )
+
+    gcal_url = make_gcal_url(name, date_raw, venue, ticket_url)
+
+    st.html(f"""
+    <div class="rich-card">
+      <div class="rich-card-top">
+        {img_html}
+        <div class="rich-card-details">
+          <div class="rich-card-header">
+            <span class="card-artist">{name}</span>
+            {tier_tag}
+          </div>
+          <div class="card-meta">{meta_str}</div>
+          {setlist_html}
+          {presale_html}
+        </div>
+      </div>
+      {map_html}
+      <div class="rich-card-links">
+        <a href="{ticket_url}" target="_blank" class="ticket-link">Tickets &rarr;</a>
+        <a href="{gcal_url}" target="_blank" class="cal-link">+ Calendar</a>
+      </div>
+    </div>
+    """)
+
+
 # ========== MAIN CONTENT ==========
 st.title("Austin Concert Agent")
 
@@ -248,8 +376,11 @@ with tab_chat:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            if message["role"] == "assistant":
+                for evt in message.get("events", []):
+                    render_rich_card(evt, profile)
 
-    user_input = st.chat_input("What's happening at Mohawk this week?")
+    user_input = st.chat_input("Ask about a show, artist, or venue...")
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         db_uid = st.session_state.get("db_user_id")
@@ -269,9 +400,9 @@ USER TASTE: {profile_ctx}
 
 TOOLS:
 1. search_concerts: Ticketmaster + Do512 fallback. Supports genre, start_date, end_date. Returns prices.
-2. search_small_venue_calendar_cached: Indie/small venue shows from Showlist Austin + Side By Side Shows + Do512. Requires a venue name.
-3. search_side_by_side_cached: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed.
-4. search_do512_cached: Browse ALL upcoming Austin music events from do512.com. Covers indie and mid-size acts.
+2. search_small_venue_calendar: Indie/small venue shows (Showlist Austin + Side By Side Shows + Do512). Requires a venue name.
+3. search_side_by_side: All upcoming indie/niche shows from sidebysideshows.com. No venue filter needed.
+4. search_do512: All upcoming Austin music events from do512.com. Covers acts not on Ticketmaster.
 5. get_distance_to_venue: Driving time from home.
 6. get_venue_details: Parking, vibe, age limits.
 7. get_recent_setlist: Recent setlist from setlist.fm.
@@ -280,19 +411,18 @@ TOOLS:
 10. add_venue_details: Add new venue to knowledge base.
 
 RULES:
-- For specific small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar_cached.
-- For browsing all indie/niche shows (no specific venue), use search_side_by_side_cached AND search_do512_cached.
+- For venue-specific queries (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar.
+- For browsing all indie shows, use search_side_by_side AND search_do512.
 - When recommending a known artist's show, call get_recent_setlist.
 - Use price field when user asks about budget.
 - Use start_date/end_date when user asks about time ranges.
-- Be proactive with distances and calendar links. NO LaTeX.
-- EFFICIENCY: Call all needed tools in a single round when possible. Minimize total API round-trips."""
+- Be proactive with distances and calendar links. No LaTeX. No em dashes.
+- EFFICIENCY: Call all needed tools in a single round when possible."""
 
                     models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
                     success = False
                     retry_wait = 0
 
-                    # Throttle: enforce minimum 2s between Gemini API calls
                     if "last_gemini_call" in st.session_state:
                         elapsed = time.time() - st.session_state.last_gemini_call
                         if elapsed < 2.0:
@@ -305,8 +435,8 @@ RULES:
                                 config=genai_types.GenerateContentConfig(
                                     system_instruction=sys_instr,
                                     tools=[search_concerts, get_distance_to_venue, send_concert_sms,
-                                           get_venue_details, search_small_venue_calendar_cached,
-                                           search_side_by_side_cached, search_do512_cached,
+                                           get_venue_details, search_small_venue_calendar,
+                                           search_side_by_side, search_do512,
                                            get_recent_setlist, make_gcal_url, get_presale_alerts,
                                            add_venue_details],
                                 ),
@@ -314,8 +444,22 @@ RULES:
                             st.session_state.last_gemini_call = time.time()
                             response = chat.send_message(user_input)
                             clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)
+                            # Strip em dashes from agent output
+                            clean_text = clean_text.replace('\u2014', ',').replace('\u2013', ',')
                             st.markdown(clean_text)
-                            st.session_state.messages.append({"role": "assistant", "content": clean_text})
+                            # Find do512 events mentioned in response and store for card rendering
+                            try:
+                                do512_evts = _fetch_do512()
+                                matched_events = _find_events_in_text(clean_text, do512_evts)
+                            except Exception:
+                                matched_events = []
+                            for evt in matched_events:
+                                render_rich_card(evt, profile)
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": clean_text,
+                                "events": matched_events,
+                            })
                             if db_uid:
                                 save_message(db_uid, "assistant", clean_text)
                             success = True
@@ -326,7 +470,7 @@ RULES:
                                 match = re.search(r"retry in (\d+\.?\d*)s", err_str)
                                 if match:
                                     retry_wait = max(retry_wait, float(match.group(1)))
-                                time.sleep(5)  # brief pause before trying next model
+                                time.sleep(5)
                                 continue
                             elif "404" in err_str:
                                 continue
