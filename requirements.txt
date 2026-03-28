@@ -3,7 +3,7 @@ python-dotenv
 requests
 tqdm
 rich
-google-generativeai
+google-genai
 streamlit>=1.36.0
 altair
 twilio

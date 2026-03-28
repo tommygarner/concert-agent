@@ -6,7 +6,8 @@ import time
 import re
 from pathlib import Path
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 from tools import (
     search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details,
     search_small_venue_calendar, search_side_by_side, search_do512, load_artist_profile,
@@ -25,8 +26,7 @@ TICKETMASTER_API_KEY = st.secrets.get("TICKETMASTER_API_KEY", os.getenv("TICKETM
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
 CITY = os.getenv("CITY", "Austin")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+_genai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # ---------- Spotify OAuth Callback ----------
 query_params = st.query_params
@@ -259,7 +259,7 @@ with tab_chat:
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            if not GEMINI_API_KEY:
+            if not _genai_client:
                 st.error("Missing Gemini API Key")
             else:
                 with st.spinner("Agent is working..."):
@@ -268,10 +268,10 @@ with tab_chat:
 USER TASTE: {profile_ctx}
 
 TOOLS:
-1. search_concerts: Ticketmaster. Supports genre, start_date, end_date. Returns prices.
+1. search_concerts: Ticketmaster + Do512 fallback. Supports genre, start_date, end_date. Returns prices.
 2. search_small_venue_calendar_cached: Indie/small venue shows from Showlist Austin + Side By Side Shows + Do512. Requires a venue name.
 3. search_side_by_side_cached: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed.
-4. search_do512_cached: Browse ALL upcoming Austin music events from do512.com. Covers indie and mid-size acts that may not appear on Ticketmaster. Use this when searching for a specific artist that Ticketmaster misses.
+4. search_do512_cached: Browse ALL upcoming Austin music events from do512.com. Covers indie and mid-size acts.
 5. get_distance_to_venue: Driving time from home.
 6. get_venue_details: Parking, vibe, age limits.
 7. get_recent_setlist: Recent setlist from setlist.fm.
@@ -282,7 +282,6 @@ TOOLS:
 RULES:
 - For specific small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar_cached.
 - For browsing all indie/niche shows (no specific venue), use search_side_by_side_cached AND search_do512_cached.
-- If Ticketmaster returns no results for an artist, ALWAYS try search_do512_cached next — it covers acts that skip Ticketmaster.
 - When recommending a known artist's show, call get_recent_setlist.
 - Use price field when user asks about budget.
 - Use start_date/end_date when user asks about time ranges.
@@ -301,16 +300,17 @@ RULES:
 
                     for model_name in models:
                         try:
-                            model = genai.GenerativeModel(
-                                model_name=model_name,
-                                tools=[search_concerts, get_distance_to_venue, send_concert_sms,
-                                       get_venue_details, search_small_venue_calendar_cached,
-                                       search_side_by_side_cached, search_do512_cached,
-                                       get_recent_setlist, make_gcal_url, get_presale_alerts,
-                                       add_venue_details],
-                                system_instruction=sys_instr,
+                            chat = _genai_client.chats.create(
+                                model=model_name,
+                                config=genai_types.GenerateContentConfig(
+                                    system_instruction=sys_instr,
+                                    tools=[search_concerts, get_distance_to_venue, send_concert_sms,
+                                           get_venue_details, search_small_venue_calendar_cached,
+                                           search_side_by_side_cached, search_do512_cached,
+                                           get_recent_setlist, make_gcal_url, get_presale_alerts,
+                                           add_venue_details],
+                                ),
                             )
-                            chat = model.start_chat(enable_automatic_function_calling=True)
                             st.session_state.last_gemini_call = time.time()
                             response = chat.send_message(user_input)
                             clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)

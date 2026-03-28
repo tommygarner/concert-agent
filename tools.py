@@ -288,14 +288,17 @@ def _fetch_do512():
     seen_ids = set()
     events = []
 
-    with ThreadPoolExecutor(max_workers=10) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_fetch_do512_day, session, d): d for d in dates}
         for future in as_completed(futures):
-            for evt in future.result():
-                key = (evt["name"], evt["date"])
-                if key not in seen_ids:
-                    seen_ids.add(key)
-                    events.append(evt)
+            try:
+                for evt in future.result():
+                    key = (evt["name"], evt["date"])
+                    if key not in seen_ids:
+                        seen_ids.add(key)
+                        events.append(evt)
+            except Exception:
+                pass
 
     events.sort(key=lambda x: x.get("date", ""))
 
