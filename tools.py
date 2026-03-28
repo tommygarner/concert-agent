@@ -75,7 +75,17 @@ def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None
     Optional filters: genre (e.g. 'rock', 'jazz', 'hip-hop'), start_date and end_date (YYYY-MM-DD)."""
     if not TICKETMASTER_API_KEY: return "Missing TM Key."
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
-    params = {"apikey": TICKETMASTER_API_KEY, "city": city, "classificationName": "music", "size": 50, "sort": "date,asc"}
+    # Use radius search for Austin to catch venues outside city limits.
+    # For other cities fall back to city name filter.
+    CITY_COORDS = {"austin": ("30.2672,-97.7431", "30")}  # lat,long + radius miles
+    city_lower = city.lower()
+    if city_lower in CITY_COORDS:
+        latlong, radius = CITY_COORDS[city_lower]
+        params = {"apikey": TICKETMASTER_API_KEY, "latlong": latlong, "radius": radius,
+                  "unit": "miles", "classificationName": "music", "size": 50, "sort": "date,asc"}
+    else:
+        params = {"apikey": TICKETMASTER_API_KEY, "city": city,
+                  "classificationName": "music", "size": 50, "sort": "date,asc"}
     if keyword: params["keyword"] = keyword
     if genre: params["keyword"] = f"{params.get('keyword', '')} {genre}".strip()
     if start_date: params["startDateTime"] = f"{start_date}T00:00:00Z"
