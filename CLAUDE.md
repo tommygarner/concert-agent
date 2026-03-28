@@ -70,9 +70,9 @@ Both paths produce the same output shape: `{artist, score, tier}` where tier is 
 
 ### Core Modules
 
-- **`tools.py`**: Canonical tool layer. All callable functions used by the Gemini agent: `search_concerts` (Ticketmaster API), `search_small_venue_calendar` (scrapes showlistaustin.com), `get_distance_to_venue` (Google Maps), `get_venue_details` / `add_venue_details` (local RAG from `data/venue_knowledge.json`), `get_recent_setlist` (setlist.fm API), `get_presale_alerts` (Ticketmaster presale scan), `make_gcal_url`, `send_concert_sms` (Twilio). Artist matching uses `thefuzz` with a fast substring path.
+- **`tools.py`**: Canonical tool layer. All callable functions used by the Gemini agent: `search_concerts` (Ticketmaster API, city-scoped), `search_small_venue_calendar` (merges Showlist Austin + SxS + Do512, filtered by venue name), `search_side_by_side` (all SxS events ranked by profile), `search_do512` (all Do512 music events ranked by profile), `get_distance_to_venue` (Google Maps), `get_venue_details` / `add_venue_details` (local RAG from `data/venue_knowledge.json`), `get_recent_setlist` (setlist.fm API), `get_presale_alerts` (Ticketmaster presale scan), `make_gcal_url`, `send_concert_sms` (Twilio). Artist matching uses `thefuzz` with a fast substring path.
 
-- **`app.py`**: Streamlit UI with four tabs (Chat, Browse Shows, Presales, My Shows). Manages Spotify OAuth callback, Gemini chat with model fallback list (`gemini-2.0-flash` -> `gemini-2.0-flash-lite-001` -> `gemini-pro-latest` -> `gemini-flash-latest`) on 429/404 errors, and renders concert cards with tier tags / calendar links. Three profile modes: Connect Spotify (live), My History (pre-ingested), Guest Mode (manual artist list).
+- **`app.py`**: Streamlit UI with four tabs (Chat, Browse Shows, Presales, My Shows). Manages Spotify OAuth callback, Gemini chat with model fallback list (`gemini-2.5-flash-lite` -> `gemini-2.5-flash`) on 429/404 errors, and renders concert cards with tier tags / calendar links. Three profile modes: Connect Spotify (live), My History (pre-ingested), Guest Mode (manual artist list).
 
 - **`server.py`**: MCP wrapper around `tools.py` via FastMCP (stdio transport). Gracefully degrades if `fastmcp` is not installed. Also importable by `gemini_agent.py` for `load_artist_profile` and `search_concerts`.
 
@@ -88,6 +88,8 @@ Both paths produce the same output shape: `{artist, score, tier}` where tier is 
 - **`data/venue_knowledge.json`**: Static RAG knowledge base for Austin venues (parking, vibe, age limits, tips). Editable via `add_venue_details()` tool or direct JSON edit.
 - **`data/setlist_cache.json`**: Cached setlist.fm results (24h TTL).
 - **`data/presale_cache.json`**: Cached presale alerts (1h TTL).
+- **`data/sbs_cache.json`**: Cached Side By Side Shows events (1h TTL).
+- **`data/do512_cache.json`**: Cached Do512 events (1h TTL).
 
 ### Caching Strategy
 
@@ -95,7 +97,9 @@ Both paths produce the same output shape: `{artist, score, tier}` where tier is 
 |-------|-----|----------|
 | Setlist lookup | 24h | `data/setlist_cache.json` (respects setlist.fm 1440/day limit) |
 | Presale alerts | 1h | `data/presale_cache.json` |
-| Small venue scraper | 6h | `@st.cache_data` in `app.py` |
+| Small venue scraper (Showlist) | 1h | `@st.cache_data` in `app.py` |
+| Side By Side Shows | 1h | `data/sbs_cache.json` + `@st.cache_data` |
+| Do512 | 1h | `data/do512_cache.json` + `@st.cache_data` |
 | Ticketmaster browse picks | 1h | `@st.cache_data` in `app.py` |
 
 ## Key Design Decisions

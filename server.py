@@ -7,7 +7,8 @@ from tools import (
     match_artist_to_event, search_concerts as tools_search_concerts,
     get_venue_details, get_recent_setlist, make_gcal_url,
     get_presale_alerts, get_distance_to_venue, search_small_venue_calendar,
-    search_side_by_side as tools_search_side_by_side, load_artist_profile
+    search_side_by_side as tools_search_side_by_side,
+    search_do512 as tools_search_do512, load_artist_profile
 )
 
 load_dotenv()
@@ -58,6 +59,11 @@ try:
     def side_by_side_shows():
         """Browse all upcoming indie/niche shows from sidebysideshows.com, ranked by listening history."""
         return tools_search_side_by_side()
+
+    @mcp.tool()
+    def do512_shows():
+        """Browse all upcoming Austin music events from do512.com. Covers acts not on Ticketmaster."""
+        return tools_search_do512()
 
     if __name__ == "__main__":
         mcp.run(transport="stdio")

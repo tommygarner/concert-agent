@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from tools import (
     search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details,
-    search_small_venue_calendar, search_side_by_side, load_artist_profile,
+    search_small_venue_calendar, search_side_by_side, search_do512, load_artist_profile,
     get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event,
     add_venue_details,
 )
@@ -63,6 +63,11 @@ def search_small_venue_calendar_cached(venue_name: str):
 def search_side_by_side_cached():
     """Browse all upcoming indie/niche shows from sidebysideshows.com."""
     return search_side_by_side()
+
+@st.cache_data(ttl=3600)
+def search_do512_cached():
+    """Browse all upcoming Austin music events from do512.com. Covers indie and mid-size acts not on Ticketmaster."""
+    return search_do512()
 
 @st.cache_data(ttl=3600)
 def get_picks(city):
@@ -264,24 +269,25 @@ USER TASTE: {profile_ctx}
 
 TOOLS:
 1. search_concerts: Ticketmaster. Supports genre, start_date, end_date. Returns prices.
-2. search_small_venue_calendar_cached: Indie/small venue shows from Showlist Austin + Side By Side Shows. Requires a venue name.
-3. search_side_by_side_cached: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed. Great for discovering niche artists.
-4. get_distance_to_venue: Driving time from home.
-5. get_venue_details: Parking, vibe, age limits.
-6. get_recent_setlist: Recent setlist from setlist.fm.
-7. make_gcal_url: Google Calendar link for a show.
-8. get_presale_alerts: Active/upcoming presales for superfan artists.
-9. add_venue_details: Add new venue to knowledge base.
+2. search_small_venue_calendar_cached: Indie/small venue shows from Showlist Austin + Side By Side Shows + Do512. Requires a venue name.
+3. search_side_by_side_cached: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed.
+4. search_do512_cached: Browse ALL upcoming Austin music events from do512.com. Covers indie and mid-size acts that may not appear on Ticketmaster. Use this when searching for a specific artist that Ticketmaster misses.
+5. get_distance_to_venue: Driving time from home.
+6. get_venue_details: Parking, vibe, age limits.
+7. get_recent_setlist: Recent setlist from setlist.fm.
+8. make_gcal_url: Google Calendar link for a show.
+9. get_presale_alerts: Active/upcoming presales for superfan artists.
+10. add_venue_details: Add new venue to knowledge base.
 
 RULES:
 - For specific small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar_cached.
-- For browsing all indie/niche shows (no specific venue), use search_side_by_side_cached.
-- If Ticketmaster returns nothing, fall back to search_small_venue_calendar_cached.
+- For browsing all indie/niche shows (no specific venue), use search_side_by_side_cached AND search_do512_cached.
+- If Ticketmaster returns no results for an artist, ALWAYS try search_do512_cached next — it covers acts that skip Ticketmaster.
 - When recommending a known artist's show, call get_recent_setlist.
 - Use price field when user asks about budget.
 - Use start_date/end_date when user asks about time ranges.
 - Be proactive with distances and calendar links. NO LaTeX.
-- EFFICIENCY: When answering a query, call all needed tools in a single round when possible (e.g., search_concerts + get_presale_alerts together) rather than one at a time. Minimize total API round-trips."""
+- EFFICIENCY: Call all needed tools in a single round when possible. Minimize total API round-trips."""
 
                     models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
                     success = False
@@ -299,8 +305,9 @@ RULES:
                                 model_name=model_name,
                                 tools=[search_concerts, get_distance_to_venue, send_concert_sms,
                                        get_venue_details, search_small_venue_calendar_cached,
-                                       search_side_by_side_cached, get_recent_setlist,
-                                       make_gcal_url, get_presale_alerts, add_venue_details],
+                                       search_side_by_side_cached, search_do512_cached,
+                                       get_recent_setlist, make_gcal_url, get_presale_alerts,
+                                       add_venue_details],
                                 system_instruction=sys_instr,
                             )
                             chat = model.start_chat(enable_automatic_function_calling=True)

@@ -27,6 +27,10 @@ _SETLIST_CACHE_TTL = 86400  # 24 hours in seconds
 _SBS_CACHE_PATH = Path("data/sbs_cache.json")
 _SBS_CACHE_TTL = 3600  # 1 hour
 
+# Do512 cache (1hr TTL)
+_DO512_CACHE_PATH = Path("data/do512_cache.json")
+_DO512_CACHE_TTL = 3600  # 1 hour
+
 def _load_setlist_cache():
     if _SETLIST_CACHE_PATH.exists():
         try:
@@ -75,17 +79,8 @@ def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None
     Optional filters: genre (e.g. 'rock', 'jazz', 'hip-hop'), start_date and end_date (YYYY-MM-DD)."""
     if not TICKETMASTER_API_KEY: return "Missing TM Key."
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
-    # Use radius search for Austin to catch venues outside city limits.
-    # For other cities fall back to city name filter.
-    CITY_COORDS = {"austin": ("30.2672,-97.7431", "30")}  # lat,long + radius miles
-    city_lower = city.lower()
-    if city_lower in CITY_COORDS:
-        latlong, radius = CITY_COORDS[city_lower]
-        params = {"apikey": TICKETMASTER_API_KEY, "latlong": latlong, "radius": radius,
-                  "unit": "miles", "classificationName": "music", "size": 50, "sort": "date,asc"}
-    else:
-        params = {"apikey": TICKETMASTER_API_KEY, "city": city,
-                  "classificationName": "music", "size": 50, "sort": "date,asc"}
+    params = {"apikey": TICKETMASTER_API_KEY, "city": city,
+              "classificationName": "music", "size": 50, "sort": "date,asc"}
     if keyword: params["keyword"] = keyword
     if genre: params["keyword"] = f"{params.get('keyword', '')} {genre}".strip()
     if start_date: params["startDateTime"] = f"{start_date}T00:00:00Z"
@@ -173,6 +168,110 @@ def _fetch_side_by_side():
         return []
 
 
+def _fetch_do512():
+    """Fetch and cache upcoming music events from do512.com. Returns list of event dicts."""
+    if _DO512_CACHE_PATH.exists():
+        try:
+            cache = json.loads(_DO512_CACHE_PATH.read_text())
+            if time.time() - cache.get("cached_at", 0) < _DO512_CACHE_TTL:
+                return cache.get("events", [])
+        except Exception:
+            pass
+
+    events = []
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    for page in range(1, 4):
+        try:
+            params = {"category": "music"}
+            if page > 1:
+                params["page"] = page
+            resp = requests.get("https://do512.com/events", params=params, headers=headers, timeout=15)
+            if resp.status_code != 200:
+                break
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            listings = soup.select("div.ds-listing")
+            if not listings:
+                break
+
+            for listing in listings:
+                try:
+                    title_el = listing.select_one("span.ds-listing-event-title-text")
+                    link_el = listing.select_one("a.ds-listing-event-title")
+                    if not title_el or not link_el:
+                        continue
+
+                    name = title_el.get_text(strip=True)
+                    href = link_el.get("href", "")
+                    ticket_url = f"https://do512.com{href}" if href.startswith("/") else href
+
+                    date_match = re.search(r'/events/(\d{4})/(\d+)/(\d+)/', href)
+                    date_str = ""
+                    if date_match:
+                        y, m, d = date_match.groups()
+                        date_str = f"{y}-{int(m):02d}-{int(d):02d}"
+
+                    # Venue link is the most reliable selector (href contains /venues/)
+                    venue_link = listing.select_one("a[href*='/venues/']")
+                    venue_name_str = venue_link.get_text(strip=True) if venue_link else ""
+
+                    time_el = listing.select_one("div.ds-event-time")
+                    time_str = time_el.get_text(strip=True) if time_el else ""
+
+                    events.append({
+                        "name": name,
+                        "venue": venue_name_str,
+                        "date": date_str,
+                        "time": time_str,
+                        "url": ticket_url,
+                        "source": "Do512",
+                    })
+                except Exception:
+                    continue
+        except Exception:
+            break
+
+    if events:
+        _DO512_CACHE_PATH.parent.mkdir(exist_ok=True)
+        _DO512_CACHE_PATH.write_text(json.dumps({"events": events, "cached_at": time.time()}))
+    return events
+
+
+def search_do512():
+    """
+    Browse all upcoming Austin music events from do512.com (covers indie, mid-size, and major acts
+    that may not appear on Ticketmaster). Returns events ranked by your listening history.
+    Use this when searching for a specific artist or when Ticketmaster returns no results.
+    """
+    profile = load_artist_profile()
+    events = _fetch_do512()
+    if not events:
+        return "Do512 is currently unavailable."
+
+    scored = []
+    for evt in events:
+        score, tier = match_artist_to_event(evt["name"], profile)
+        scored.append((score, tier, evt))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    lines = []
+    for score, tier, evt in scored:
+        tier_tag = f" [{tier.upper()}]" if tier else ""
+        lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']} — {evt['url']}{tier_tag}")
+
+    matched = [l for l in lines if any(t in l for t in ["[SUPERFAN]", "[FAN]", "[CASUAL]"])]
+    unmatched = [l for l in lines if l not in matched]
+
+    result = []
+    if matched:
+        result.append(f"=== Matched to your profile ({len(matched)} shows) ===")
+        result.extend(matched)
+    result.append(f"\n=== All Do512 shows ({len(unmatched)} more) ===")
+    result.extend(unmatched[:40])
+    return "\n".join(result)
+
+
 def search_small_venue_calendar(venue_name: str):
     """
     Search indie/small venue shows from Showlist Austin AND Side By Side Shows.
@@ -181,6 +280,7 @@ def search_small_venue_calendar(venue_name: str):
     Example: search_small_venue_calendar("Mohawk")
     """
     results = []
+    vl = venue_name.lower()
 
     # Source 1: Showlist Austin
     showlist_result = _scrape_showlist(venue_name)
@@ -190,9 +290,17 @@ def search_small_venue_calendar(venue_name: str):
     sbs_lines = []
     if sbs_events:
         for evt in sbs_events:
-            if venue_name.lower() in evt["venue"].lower() or venue_name.lower() in evt["name"].lower():
+            if vl in evt["venue"].lower() or vl in evt["name"].lower():
                 artists_str = ", ".join(evt["artists"][:5]) if evt["artists"] else evt["name"]
                 sbs_lines.append(f"{evt['date']}: {artists_str} @ {evt['venue']} [{evt['price']}]")
+
+    # Source 3: Do512
+    do512_events = _fetch_do512()
+    do512_lines = []
+    if do512_events:
+        for evt in do512_events:
+            if vl in evt["venue"].lower() or vl in evt["name"].lower():
+                do512_lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']} — {evt['url']}")
 
     # Merge results
     if showlist_result and not showlist_result.startswith("No upcoming"):
@@ -201,6 +309,9 @@ def search_small_venue_calendar(venue_name: str):
     if sbs_lines:
         results.append("=== Side By Side Shows ===")
         results.extend(sbs_lines[:15])
+    if do512_lines:
+        results.append("=== Do512 ===")
+        results.extend(do512_lines[:15])
 
     if results:
         return "\n".join(results)
