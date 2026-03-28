@@ -116,7 +116,10 @@ def search_concerts(keyword: str = None, city: str = "Austin", genre: str = None
     # If a keyword was given but Ticketmaster found nothing, automatically check Do512
     if keyword and not results:
         kw_lower = keyword.lower()
-        do512_events = _fetch_do512()
+        try:
+            do512_events = _fetch_do512()
+        except Exception:
+            do512_events = []
         for evt in do512_events:
             evt_name_lower = evt.get("name", "").lower()
             artists_lower = " ".join(evt.get("artists", [])).lower()
@@ -296,9 +299,12 @@ def _fetch_do512():
 
     events.sort(key=lambda x: x.get("date", ""))
 
-    if events:
-        _DO512_CACHE_PATH.parent.mkdir(exist_ok=True)
-        _DO512_CACHE_PATH.write_text(json.dumps({"events": events, "cached_at": time.time()}))
+    try:
+        if events:
+            _DO512_CACHE_PATH.parent.mkdir(exist_ok=True)
+            _DO512_CACHE_PATH.write_text(json.dumps({"events": events, "cached_at": time.time()}))
+    except Exception:
+        pass  # Cache write failure is non-fatal; return events anyway
     return events
 
 
