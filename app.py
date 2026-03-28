@@ -53,9 +53,16 @@ if "code" in query_params and "sp_token" not in st.session_state:
 st.set_page_config(page_title="Austin Concert Agent", page_icon="🎸", layout="wide")
 
 # ---------- Cached helpers ----------
-@st.cache_data(ttl=21600)
-def get_cached_small_venue_data(venue_name):
+# Named to match what Gemini calls — must match tool name in system prompt
+@st.cache_data(ttl=3600)
+def search_small_venue_calendar_cached(venue_name: str):
+    """Search indie/small venue shows from Showlist Austin + Side By Side Shows."""
     return search_small_venue_calendar(venue_name)
+
+@st.cache_data(ttl=3600)
+def search_side_by_side_cached():
+    """Browse all upcoming indie/niche shows from sidebysideshows.com."""
+    return search_side_by_side()
 
 @st.cache_data(ttl=3600)
 def get_picks(city):
@@ -257,8 +264,8 @@ USER TASTE: {profile_ctx}
 
 TOOLS:
 1. search_concerts: Ticketmaster. Supports genre, start_date, end_date. Returns prices.
-2. search_small_venue_calendar: Indie/small venue shows from Showlist Austin + Side By Side Shows. Requires a venue name.
-3. search_side_by_side: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed. Great for discovering niche artists.
+2. search_small_venue_calendar_cached: Indie/small venue shows from Showlist Austin + Side By Side Shows. Requires a venue name.
+3. search_side_by_side_cached: Browse ALL upcoming indie/niche shows from sidebysideshows.com. No venue filter needed. Great for discovering niche artists.
 4. get_distance_to_venue: Driving time from home.
 5. get_venue_details: Parking, vibe, age limits.
 6. get_recent_setlist: Recent setlist from setlist.fm.
@@ -267,9 +274,9 @@ TOOLS:
 9. add_venue_details: Add new venue to knowledge base.
 
 RULES:
-- For specific small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar.
-- For browsing all indie/niche shows (no specific venue), use search_side_by_side.
-- If Ticketmaster returns nothing, fall back to search_small_venue_calendar.
+- For specific small venues (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar_cached.
+- For browsing all indie/niche shows (no specific venue), use search_side_by_side_cached.
+- If Ticketmaster returns nothing, fall back to search_small_venue_calendar_cached.
 - When recommending a known artist's show, call get_recent_setlist.
 - Use price field when user asks about budget.
 - Use start_date/end_date when user asks about time ranges.
@@ -288,15 +295,12 @@ RULES:
 
                     for model_name in models:
                         try:
-                            def cached_small_venue_tool(venue_name: str):
-                                return get_cached_small_venue_data(venue_name)
-
                             model = genai.GenerativeModel(
                                 model_name=model_name,
                                 tools=[search_concerts, get_distance_to_venue, send_concert_sms,
-                                       get_venue_details, cached_small_venue_tool, search_side_by_side,
-                                       get_recent_setlist, make_gcal_url, get_presale_alerts,
-                                       add_venue_details],
+                                       get_venue_details, search_small_venue_calendar_cached,
+                                       search_side_by_side_cached, get_recent_setlist,
+                                       make_gcal_url, get_presale_alerts, add_venue_details],
                                 system_instruction=sys_instr,
                             )
                             chat = model.start_chat(enable_automatic_function_calling=True)

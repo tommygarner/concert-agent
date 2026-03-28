@@ -25,7 +25,7 @@ _SETLIST_CACHE_TTL = 86400  # 24 hours in seconds
 
 # Side By Side Shows cache (6hr TTL)
 _SBS_CACHE_PATH = Path("data/sbs_cache.json")
-_SBS_CACHE_TTL = 21600  # 6 hours
+_SBS_CACHE_TTL = 3600  # 1 hour
 
 def _load_setlist_cache():
     if _SETLIST_CACHE_PATH.exists():
