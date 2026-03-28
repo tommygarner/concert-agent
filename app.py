@@ -283,7 +283,7 @@ RULES:
 - Be proactive with distances and calendar links. NO LaTeX.
 - EFFICIENCY: When answering a query, call all needed tools in a single round when possible (e.g., search_concerts + get_presale_alerts together) rather than one at a time. Minimize total API round-trips."""
 
-                    models = ['gemini-2.0-flash-lite-001', 'gemini-2.0-flash-001']
+                    models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
                     success = False
                     retry_wait = 0
 
