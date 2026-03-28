@@ -14,8 +14,8 @@ def run_concert_agent(user_query, use_history=True):
     if use_history:
         profile = load_artist_profile()
         # Get top 20 artists to give Gemini context
-        top_artists = sorted(profile.items(), key=lambda x: x[1], reverse=True)[:20]
-        profile_summary = ", ".join([f"{a} (score: {s:.1f})" for a, s in top_artists])
+        top_artists = sorted(profile.items(), key=lambda x: x[1]['score'], reverse=True)[:20]
+        profile_summary = ", ".join([f"{a} (score: {s['score']:.1f})" for a, s in top_artists])
 
     # 2. System Instruction
     system_prompt = f"""
