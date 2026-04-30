@@ -427,6 +427,31 @@ with tab_chat:
             else:
                 with st.spinner("Agent is working..."):
                     profile_ctx = get_profile_context()
+
+                    # Detect which optional tools are configured so we only instruct
+                    # the agent to call tools that won't just return error strings.
+                    _has_setlist = bool(
+                        st.secrets.get("SETLISTFM_API_KEY", os.getenv("SETLISTFM_API_KEY", ""))
+                    )
+                    _has_maps = bool(
+                        st.secrets.get("GOOGLE_MAPS_API_KEY", os.getenv("GOOGLE_MAPS_API_KEY", ""))
+                    )
+                    _has_lastfm = bool(
+                        st.secrets.get("LASTFM_API_KEY", os.getenv("LASTFM_API_KEY", ""))
+                    )
+
+                    _mandatory = ["get_venue_details for the venue"]
+                    if _has_setlist:
+                        _mandatory.append("get_recent_setlist for the artist")
+                    if _has_maps:
+                        _mandatory.append("get_distance_to_venue for travel time")
+                    _mandatory_str = " + ".join(_mandatory)
+
+                    _discovery_rule = (
+                        "- When the user mentions an unfamiliar artist: call get_similar_artists to surface related acts.\n"
+                        if _has_lastfm else ""
+                    )
+
                     sys_instr = f"""You are a professional Austin Concert Concierge.
 USER TASTE: {profile_ctx}
 
@@ -435,25 +460,25 @@ TOOLS (use them proactively — never ask permission first):
 2. search_small_venue_calendar: Indie/small venue shows (Showlist Austin + Side By Side Shows + Do512). Requires a venue name.
 3. search_side_by_side: All upcoming indie/niche shows from sidebysideshows.com. No venue filter needed.
 4. search_do512: All upcoming Austin music events from do512.com. Covers acts not on Ticketmaster.
-5. get_distance_to_venue: Driving time from home.
+5. get_distance_to_venue: Driving time from home.{"" if _has_maps else " (NOT configured — do not call)"}
 6. get_venue_details: Parking, vibe, age limits.
-7. get_recent_setlist: Recent setlist from setlist.fm.
+7. get_recent_setlist: Recent setlist from setlist.fm.{"" if _has_setlist else " (NOT configured — do not call)"}
 8. make_gcal_url: Google Calendar link for a show.
 9. get_presale_alerts: Active/upcoming presales for superfan artists.
 10. add_venue_details: Add new venue to knowledge base.
-11. get_similar_artists: Find artists similar to a given artist (Last.fm).
+11. get_similar_artists: Find artists similar to a given artist (Last.fm).{"" if _has_lastfm else " (NOT configured — do not call)"}
 
 RULES:
 - NEVER say "Would you like me to find more details?" or "Would you like me to search for...?" — just do it immediately.
-- A complete show recommendation ALWAYS includes: call get_recent_setlist + get_venue_details + get_distance_to_venue in the same response, before writing any prose. No exceptions.
+- A complete show recommendation ALWAYS includes: call {_mandatory_str} in the same response, before writing any prose. No exceptions.
 - For venue-specific queries (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar.
 - For indie/small venue shows, call BOTH search_side_by_side AND search_do512 for full coverage.
 - ALWAYS when user asks about upcoming shows, what to see this week/weekend, or anything forward-looking: call get_presale_alerts alongside the show search.
-- When the user mentions or asks about an unfamiliar artist: call get_similar_artists to surface related acts.
-- Always include a make_gcal_url link for any recommended show. No LaTeX. No em dashes.
+{_discovery_rule}- Always include a make_gcal_url link for any recommended show. No LaTeX. No em dashes.
 - Use price field when user asks about budget. Use start_date/end_date when user asks about time ranges.
 - Search for artists using the EXACT name the user provides. Do NOT rephrase, correct, or substitute artist names.
 - If search_concerts returns no results, always try search_do512 before saying nothing was found.
+- If get_venue_details returns no data for a venue, omit that section — do not tell the user you have no data.
 - EFFICIENCY: Call all needed tools in parallel in a single round when possible."""
 
                     models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
