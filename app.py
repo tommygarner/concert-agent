@@ -75,19 +75,9 @@ if "messages" not in st.session_state:
 if "mode" not in st.session_state:
     st.session_state.mode = "Connect Spotify"
 
-# ---------- CSS + auto-scroll ----------
+# ---------- CSS ----------
 with open(Path(__file__).parent / "styles.css") as _css:
     st.markdown(f"<style>{_css.read()}</style>", unsafe_allow_html=True)
-
-# Scroll to the chat-bottom anchor after each render so newest message is always visible
-st.markdown("""
-<script>
-    (function() {
-        const el = window.parent.document.getElementById('chat-bottom');
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    })();
-</script>
-""", unsafe_allow_html=True)
 
 TIER_TAG = {
     'superfan': "<span class='tier-pill superfan'>Superfan</span>",
@@ -392,15 +382,35 @@ tab_chat, tab_browse, tab_presales, tab_shows = st.tabs(["Chat", "Browse Shows",
 
 # ---------- TAB: Chat ----------
 with tab_chat:
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"] or "")
-            if message["role"] == "assistant":
-                for evt in message.get("events", []):
-                    render_rich_card(evt, profile)
+    # Scrollable message pane — new messages appear at the bottom
+    chat_pane = st.container(height=520, border=False)
+    with chat_pane:
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"] or "")
+                if message["role"] == "assistant":
+                    for evt in message.get("events", []):
+                        render_rich_card(evt, profile)
 
-    # Anchor element — JS scrolls to this after each render
-    st.markdown('<div id="chat-bottom"></div>', unsafe_allow_html=True)
+    # Auto-scroll the pane to the bottom after each render
+    import streamlit.components.v1 as _components
+    _components.html("""
+    <script>
+        (function() {
+            function scrollPane() {
+                var panes = window.parent.document.querySelectorAll(
+                    'section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] > div'
+                );
+                panes.forEach(function(el) {
+                    if (el.scrollHeight > el.clientHeight) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                });
+            }
+            setTimeout(scrollPane, 150);
+        })();
+    </script>
+    """, height=0)
 
     user_input = st.chat_input("Ask about a show, artist, or venue...")
     if user_input:
