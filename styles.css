@@ -449,3 +449,18 @@ div[data-testid="stSidebarNav"] { display: none; }
     background: var(--border);
     border-radius: 3px;
 }
+
+/* Pin the chat input to the bottom of the viewport */
+[data-testid="stBottom"] {
+    position: fixed !important;
+    bottom: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 10px 20px 14px !important;
+    z-index: 999;
+}
+
+/* Pad main content so the last message clears the fixed input bar */
+section[data-testid="stMain"] > div:first-child {
+    padding-bottom: 90px;
+}

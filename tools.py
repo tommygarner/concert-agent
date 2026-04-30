@@ -23,7 +23,7 @@ SETLISTFM_API_KEY = os.getenv("SETLISTFM_API_KEY", "")
 _SETLIST_CACHE_PATH = Path("data/setlist_cache.json")
 _SETLIST_CACHE_TTL = 86400  # 24 hours in seconds
 
-# Side By Side Shows cache (6hr TTL)
+# Side By Side Shows cache (1hr TTL)
 _SBS_CACHE_PATH = Path("data/sbs_cache.json")
 _SBS_CACHE_TTL = 3600  # 1 hour
 
@@ -318,9 +318,11 @@ def _fetch_do512():
 
 def search_do512():
     """
-    Browse all upcoming Austin music events from do512.com (covers indie, mid-size, and major acts
-    that may not appear on Ticketmaster). Returns events ranked by your listening history.
-    Use this when searching for a specific artist or when Ticketmaster returns no results.
+    Browse all upcoming Austin music events from do512.com (indie, mid-size, and major acts).
+    Covers artists and shows that don't appear on Ticketmaster.
+    Call this alongside search_concerts for complete coverage, especially for small venues
+    like Mohawk, Scoot Inn, Emo's, Parish, Barracuda, Empire Control Room, and Antone's.
+    Returns events ranked by your listening history.
     """
     profile = load_artist_profile()
     events = _fetch_do512()
@@ -372,7 +374,13 @@ def search_small_venue_calendar(venue_name: str):
     sbs_lines = []
     if sbs_events:
         for evt in sbs_events:
-            if vl in evt["venue"].lower() or vl in evt["name"].lower():
+            evt_venue_lower = evt["venue"].lower()
+            sbs_venue_match = (
+                vl in evt_venue_lower
+                or fuzz.partial_ratio(vl, evt_venue_lower) >= 70
+                or vl in evt["name"].lower()
+            )
+            if sbs_venue_match:
                 artists_str = ", ".join(evt["artists"][:5]) if evt["artists"] else evt["name"]
                 sbs_lines.append(f"{evt['date']}: {artists_str} @ {evt['venue']} [{evt['price']}]")
 
@@ -381,7 +389,13 @@ def search_small_venue_calendar(venue_name: str):
     do512_lines = []
     if do512_events:
         for evt in do512_events:
-            if vl in evt.get("venue", "").lower() or vl in evt["name"].lower():
+            evt_venue_lower = evt.get("venue", "").lower()
+            venue_match = (
+                vl in evt_venue_lower
+                or fuzz.partial_ratio(vl, evt_venue_lower) >= 70
+                or vl in evt["name"].lower()
+            )
+            if venue_match:
                 price = evt.get("ticket_info", "")
                 price_str = f" [{price}]" if price else ""
                 do512_lines.append(f"{evt['date']}: {evt['name']} @ {evt['venue']}{price_str} — {evt['url']}")
@@ -427,8 +441,9 @@ def search_small_venue_calendar(venue_name: str):
 def search_side_by_side():
     """
     Browse all upcoming indie/niche shows from Side By Side Shows (sidebysideshows.com).
-    Returns all Austin events with artist names, venues, dates, and prices.
-    Use this to discover niche artists and small venue shows beyond Ticketmaster.
+    Returns Austin events with artist names, venues, dates, and prices.
+    Call this alongside search_do512 for maximum indie/small-venue coverage.
+    Especially useful for discovering niche acts at Hole in the Wall, Continental Club, Saxon Pub, and similar.
     """
     profile = load_artist_profile()
     events = _fetch_side_by_side()
@@ -488,7 +503,8 @@ def _scrape_showlist(venue_name: str):
         return None
 
 def get_distance_to_venue(venue_address: str):
-    """Calculate driving time/distance."""
+    """Calculate driving distance and travel time from the user's home to a venue address.
+    Call this automatically with every show recommendation to give the user travel time context."""
     current_home = os.getenv("HOME_ADDRESS", "Austin, TX")
     if not GMAPS_KEY: return "Missing GMaps Key."
     try:
@@ -502,7 +518,7 @@ def get_distance_to_venue(venue_address: str):
     except Exception as e: return f"Error: {str(e)}"
 
 def send_concert_sms(message: str):
-    """Send an SMS alert."""
+    """Send an SMS alert to the user's phone. Use when the user asks to be notified or to send a digest."""
     sid, token = os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")
     phone, my_phone = os.getenv("TWILIO_PHONE_NUMBER"), os.getenv("MY_PHONE_NUMBER")
     if not sid: return "Twilio not configured."
@@ -515,8 +531,9 @@ def send_concert_sms(message: str):
 def get_recent_setlist(artist_name: str):
     """
     Fetch the most recent setlist for an artist from setlist.fm.
-    Returns a summary of the last show: date, venue, city, and songs played.
-    Results are cached for 24 hours to stay within the 1440/day API limit.
+    Returns the last show date, venue, city, and songs played.
+    Call this automatically when recommending any show to show what the artist plays live.
+    Results are cached 24 hours to stay within the 1440/day API limit.
     Example: get_recent_setlist("Khruangbin")
     """
     cache_key = artist_name.lower().strip()
@@ -616,8 +633,9 @@ _PRESALE_CACHE_TTL = 3600  # 1 hour
 
 def get_presale_alerts(city: str = "Austin"):
     """
-    Check for upcoming presale windows for the user's top artists.
-    Returns events with active or upcoming presales, including presale codes and timing.
+    Check for upcoming presale windows for the user's top artists (superfans + fans).
+    Returns events with active or upcoming presales, including codes and timing.
+    Call this proactively when the user asks about upcoming shows or what to see soon.
     Results cached for 1 hour. Example: get_presale_alerts("Austin")
     """
     # Check cache
@@ -634,13 +652,15 @@ def get_presale_alerts(city: str = "Austin"):
     if not profile: return "No artist profile loaded."
 
     superfans = [name for name, info in profile.items() if info.get('tier') == 'superfan']
-    if not superfans: return "No superfan artists found in your profile."
+    fans = [name for name, info in profile.items() if info.get('tier') == 'fan']
+    artists_to_check = (superfans + fans)[:20]
+    if not artists_to_check: return "No artists found in your profile."
 
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     alerts = []
 
-    for artist in superfans[:10]:  # limit API calls
+    for artist in artists_to_check:
         try:
             resp = requests.get(
                 "https://app.ticketmaster.com/discovery/v2/events.json",
@@ -733,6 +753,51 @@ def get_venue_details(venue_name: str):
         if target in clean(venue['name']) or clean(venue['name']) in target:
             return f"--- {venue['name']} Info ---\n🅿️ Parking: {venue['parking']}\n🔞 Age: {venue['age_limit']}\n🎸 Vibe: {venue['vibe']}\n💡 Tips: {venue['tips']}"
     return f"No insider info for '{venue_name}'. You can add it with add_venue_details."
+
+
+_LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "")
+
+
+def get_similar_artists(artist_name: str):
+    """
+    Find artists similar to a given artist using Last.fm. Returns up to 10 similar artists with scores.
+    Call this when the user asks who sounds like X, when in Discovery mode, or when recommending
+    shows to surface related acts from their listening profile.
+    Example: get_similar_artists("Khruangbin")
+    """
+    if not _LASTFM_API_KEY:
+        return (
+            f"Last.fm API key not configured (LASTFM_API_KEY). "
+            f"Add it to .env to enable artist similarity lookups."
+        )
+    try:
+        resp = requests.get(
+            "https://ws.audioscrobbler.com/2.0/",
+            params={
+                "method": "artist.getsimilar",
+                "artist": artist_name,
+                "api_key": _LASTFM_API_KEY,
+                "format": "json",
+                "limit": 10,
+                "autocorrect": 1,
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return f"Last.fm returned status {resp.status_code}."
+        data = resp.json()
+        if "error" in data:
+            return f"Last.fm error: {data.get('message', data['error'])}"
+        similar = data.get("similarartists", {}).get("artist", [])
+        if not similar:
+            return f"No similar artists found for '{artist_name}' on Last.fm."
+        lines = [f"Artists similar to {artist_name}:"]
+        for a in similar:
+            match_pct = round(float(a.get("match", 0)) * 100)
+            lines.append(f"  {a['name']} ({match_pct}% match)")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching similar artists: {e}"
 
 
 def add_venue_details(name: str, parking: str, age_limit: str, vibe: str, tips: str):

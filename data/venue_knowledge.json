@@ -110,5 +110,54 @@
     "age_limit": "Generally All Ages.",
     "vibe": "Historic, world-class acoustic listening room inside the UT Union building. Legendary for folk and Americana.",
     "tips": "Arrive early; seating is very limited and intimate."
+  },
+  {
+    "name": "The Parish",
+    "parking": "Street parking on E 6th or paid lots off Red River. Rideshare recommended on weekends.",
+    "age_limit": "Strictly 21+.",
+    "vibe": "Intimate 500-cap room above a restaurant on 6th St. Known for indie rock, electronic, and touring acts that can't quite fill Emo's. Balcony has the best views.",
+    "tips": "Arrive early to claim the balcony rail. Sound is excellent at mid-floor. Separate entrance from the restaurant downstairs."
+  },
+  {
+    "name": "Parish Underground",
+    "parking": "Same as The Parish (street on E 6th, paid lots off Red River).",
+    "age_limit": "Strictly 21+.",
+    "vibe": "Basement-level room beneath The Parish. Even more intimate, great for emerging acts and late-night DJ sets. Low ceilings make it very loud.",
+    "tips": "Check whether the show is in the main room (The Parish) or Underground before you go."
+  },
+  {
+    "name": "Barracuda",
+    "parking": "Street parking on E 7th/E 8th. Small lot fills fast on weekends.",
+    "age_limit": "All Ages for most shows.",
+    "vibe": "East Austin outdoor/indoor hybrid. A chill backyard venue with a covered stage, string lights, and food trucks. Great for indie, punk, and alternative.",
+    "tips": "Covered outdoor area means shows go on rain or shine. Arrive early for general admission spots near stage."
+  },
+  {
+    "name": "Waterloo Records",
+    "parking": "Small dedicated lot and street parking on N Lamar. Lot fills for in-store events.",
+    "age_limit": "All Ages.",
+    "vibe": "Austin's legendary independent record store. Free in-store shows range from intimate acoustic sets to album release parties. Very casual, community-focused.",
+    "tips": "Shows are free but can get crowded. Browse the new arrivals while you wait. Check their in-store events calendar separately from ticketed venues."
+  },
+  {
+    "name": "3TEN ACL Live",
+    "parking": "Same building as ACL Live (W Hotel garage or City Hall garage).",
+    "age_limit": "Generally All Ages.",
+    "vibe": "Intimate seated room inside the ACL Live complex. Polished production in a much smaller setting than the main theater. Excellent for singer-songwriters and chamber-scale acts.",
+    "tips": "Seated shows mean reserved vs. general admission matters. Sightlines are excellent from anywhere."
+  },
+  {
+    "name": "Paramount Theatre",
+    "parking": "Downtown garages at Congress/6th or the Austin City Hall lot. Metered street parking limited.",
+    "age_limit": "All Ages.",
+    "vibe": "Historic 1915 theater on Congress Avenue. Ornate, restored, with incredible acoustics. Feels special for any show. Hosts comedy, film, and music equally.",
+    "tips": "Balcony seats can be steep but offer great full-stage views. Dress up a bit; the venue has a formal energy."
+  },
+  {
+    "name": "Long Center for the Performing Arts",
+    "parking": "On-site parking garage accessible from W Riverside Dr. Validate with ticket stub.",
+    "age_limit": "All Ages.",
+    "vibe": "Major performing arts venue with stunning Lady Bird Lake views. Dell Hall is grand and formal; Rollins Studio Theatre is intimate. Hosts classical, jazz crossover, and world music.",
+    "tips": "Dell Hall has assigned seating; dress is smart casual to formal. Arrive 30 min early to enjoy the outdoor terrace with lake views."
   }
 ]

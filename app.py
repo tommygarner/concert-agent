@@ -12,7 +12,7 @@ from tools import (
     search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details,
     search_small_venue_calendar, search_side_by_side, search_do512, load_artist_profile,
     get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event,
-    add_venue_details, _fetch_do512, _load_setlist_cache,
+    add_venue_details, get_similar_artists, _fetch_do512, _load_setlist_cache,
 )
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import (
@@ -75,9 +75,19 @@ if "messages" not in st.session_state:
 if "mode" not in st.session_state:
     st.session_state.mode = "Connect Spotify"
 
-# ---------- CSS ----------
+# ---------- CSS + auto-scroll ----------
 with open(Path(__file__).parent / "styles.css") as _css:
     st.markdown(f"<style>{_css.read()}</style>", unsafe_allow_html=True)
+
+# Scroll to the chat-bottom anchor after each render so newest message is always visible
+st.markdown("""
+<script>
+    (function() {
+        const el = window.parent.document.getElementById('chat-bottom');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    })();
+</script>
+""", unsafe_allow_html=True)
 
 TIER_TAG = {
     'superfan': "<span class='tier-pill superfan'>Superfan</span>",
@@ -208,6 +218,13 @@ def render_concert_card(event):
     if price:
         meta_parts.append(price)
     meta_str = " &middot; ".join(p for p in meta_parts if p)
+    presale = event.get('presale', '')
+    if presale == 'active':
+        presale_html = '<div><span class="presale-badge">Presale Active Now</span></div>'
+    elif presale == 'upcoming':
+        presale_html = '<div><span class="presale-badge upcoming">Presale Coming Soon</span></div>'
+    else:
+        presale_html = ''
     st.html(f"""
     <div class="concert-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -215,6 +232,7 @@ def render_concert_card(event):
             {tag}
         </div>
         <div class="card-meta">{meta_str}</div>
+        {presale_html}
         <div class="card-links">
             <a href="{event.get('url','#')}" target="_blank" class="ticket-link">Tickets &rarr;</a>
             <a href="{gcal_link}" target="_blank" class="cal-link">+ Calendar</a>
@@ -230,7 +248,8 @@ def _find_events_in_text(text, do512_events):
     matched, seen = [], set()
     for evt in do512_events:
         name = evt.get("name", "")
-        if not name or name in seen:
+        # Skip junk/empty names — short strings like "-" match everywhere (e.g. in URLs)
+        if not name or len(name) < 3 or name in seen:
             continue
         if name.lower() in text_lower:
             seen.add(name)
@@ -375,10 +394,13 @@ tab_chat, tab_browse, tab_presales, tab_shows = st.tabs(["Chat", "Browse Shows",
 with tab_chat:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            st.markdown(message["content"] or "")
             if message["role"] == "assistant":
                 for evt in message.get("events", []):
                     render_rich_card(evt, profile)
+
+    # Anchor element — JS scrolls to this after each render
+    st.markdown('<div id="chat-bottom"></div>', unsafe_allow_html=True)
 
     user_input = st.chat_input("Ask about a show, artist, or venue...")
     if user_input:
@@ -398,7 +420,7 @@ with tab_chat:
                     sys_instr = f"""You are a professional Austin Concert Concierge.
 USER TASTE: {profile_ctx}
 
-TOOLS:
+TOOLS (use them proactively — never ask permission first):
 1. search_concerts: Ticketmaster + Do512 fallback. Supports genre, start_date, end_date. Returns prices.
 2. search_small_venue_calendar: Indie/small venue shows (Showlist Austin + Side By Side Shows + Do512). Requires a venue name.
 3. search_side_by_side: All upcoming indie/niche shows from sidebysideshows.com. No venue filter needed.
@@ -409,15 +431,20 @@ TOOLS:
 8. make_gcal_url: Google Calendar link for a show.
 9. get_presale_alerts: Active/upcoming presales for superfan artists.
 10. add_venue_details: Add new venue to knowledge base.
+11. get_similar_artists: Find artists similar to a given artist (Last.fm).
 
 RULES:
+- NEVER say "Would you like me to find more details?" or "Would you like me to search for...?" — just do it immediately.
+- A complete show recommendation ALWAYS includes: call get_recent_setlist + get_venue_details + get_distance_to_venue in the same response, before writing any prose. No exceptions.
 - For venue-specific queries (Mohawk, Hole in the Wall, etc.), use search_small_venue_calendar.
-- For browsing all indie shows, use search_side_by_side AND search_do512.
-- When recommending a known artist's show, call get_recent_setlist.
-- Use price field when user asks about budget.
-- Use start_date/end_date when user asks about time ranges.
-- Be proactive with distances and calendar links. No LaTeX. No em dashes.
-- EFFICIENCY: Call all needed tools in a single round when possible."""
+- For indie/small venue shows, call BOTH search_side_by_side AND search_do512 for full coverage.
+- ALWAYS when user asks about upcoming shows, what to see this week/weekend, or anything forward-looking: call get_presale_alerts alongside the show search.
+- When the user mentions or asks about an unfamiliar artist: call get_similar_artists to surface related acts.
+- Always include a make_gcal_url link for any recommended show. No LaTeX. No em dashes.
+- Use price field when user asks about budget. Use start_date/end_date when user asks about time ranges.
+- Search for artists using the EXACT name the user provides. Do NOT rephrase, correct, or substitute artist names.
+- If search_concerts returns no results, always try search_do512 before saying nothing was found.
+- EFFICIENCY: Call all needed tools in parallel in a single round when possible."""
 
                     models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
                     success = False
@@ -427,6 +454,20 @@ RULES:
                         elapsed = time.time() - st.session_state.last_gemini_call
                         if elapsed < 2.0:
                             time.sleep(2.0 - elapsed)
+
+                    # Build conversation history (last 10 exchanges = 20 msgs, excluding current)
+                    prior_msgs = st.session_state.messages[:-1][-20:]
+                    chat_history = []
+                    for msg in prior_msgs:
+                        role = "user" if msg["role"] == "user" else "model"
+                        text = msg.get("content") or ""  # guard against explicit None
+                        if text:
+                            chat_history.append(
+                                genai_types.Content(
+                                    role=role,
+                                    parts=[genai_types.Part(text=text)],
+                                )
+                            )
 
                     for model_name in models:
                         try:
@@ -438,21 +479,32 @@ RULES:
                                            get_venue_details, search_small_venue_calendar,
                                            search_side_by_side, search_do512,
                                            get_recent_setlist, make_gcal_url, get_presale_alerts,
-                                           add_venue_details],
+                                           add_venue_details, get_similar_artists],
                                 ),
+                                history=chat_history,
                             )
                             st.session_state.last_gemini_call = time.time()
                             response = chat.send_message(user_input)
-                            clean_text = re.sub(r'\$(.*?)\$', r'\1', response.text)
+                            raw_text = response.text or ""
+                            clean_text = re.sub(r'\$(.*?)\$', r'\1', raw_text)
                             # Strip em dashes from agent output
                             clean_text = clean_text.replace('\u2014', ',').replace('\u2013', ',')
                             st.markdown(clean_text)
-                            # Find do512 events mentioned in response and store for card rendering
-                            try:
-                                do512_evts = _fetch_do512()
-                                matched_events = _find_events_in_text(clean_text, do512_evts)
-                            except Exception:
+                            # Find do512 events mentioned in response and store for card rendering.
+                            # Skip if the agent returned a negative/not-found response to avoid
+                            # false positives from event names appearing inside error phrases.
+                            _NEGATIVE = ("cannot find", "no results", "unable to find",
+                                         "couldn't find", "no upcoming", "no shows",
+                                         "no concerts", "no events", "check the spelling",
+                                         "don't have any information", "no information")
+                            if any(p in clean_text.lower() for p in _NEGATIVE):
                                 matched_events = []
+                            else:
+                                try:
+                                    do512_evts = _fetch_do512()
+                                    matched_events = _find_events_in_text(clean_text, do512_evts)
+                                except Exception:
+                                    matched_events = []
                             for evt in matched_events:
                                 render_rich_card(evt, profile)
                             st.session_state.messages.append({
@@ -463,6 +515,7 @@ RULES:
                             if db_uid:
                                 save_message(db_uid, "assistant", clean_text)
                             success = True
+                            st.rerun()
                             break
                         except Exception as e:
                             err_str = str(e)
@@ -494,6 +547,10 @@ RULES:
 with tab_browse:
     with st.spinner("Loading upcoming shows..."):
         events = get_picks(CITY)
+        try:
+            get_presale_alerts(CITY)  # warms the presale file cache for badge lookup
+        except Exception:
+            pass
 
     if not events:
         st.info("No upcoming shows found. Check back later.")
@@ -517,6 +574,7 @@ with tab_browse:
                 "date": e.get('dates', {}).get('start', {}).get('localDate', 'TBD'),
                 "url": e.get('url', ''),
                 "score": score, "tier": tier, "price": price_str,
+                "presale": _get_presale_info(name) if score > 0 else "",
             })
 
         # Split into matched and all
