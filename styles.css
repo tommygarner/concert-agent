@@ -196,33 +196,61 @@ h2, [data-testid="stSubheader"] {
     color: var(--link);
 }
 
-.concert-card .card-links a.preview-link {
-    font-size: 0.74rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+/* Icon button row for Browse cards */
+.card-icon-links {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    align-items: center;
+}
+
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
     text-decoration: none;
-    padding: 2px 8px;
-    border-radius: 3px;
-    border: 1px solid currentColor;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    color: var(--text-muted);
 }
 
-.concert-card .card-links a.spotify-link {
-    color: #1DB954;
+.icon-btn:hover {
+    border-color: var(--text-muted);
+    transform: translateY(-1px);
 }
 
-.concert-card .card-links a.spotify-link:hover {
-    background: #1DB954;
+.icon-btn.ticket-icon-btn {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.icon-btn.ticket-icon-btn:hover {
+    background: var(--accent);
     color: white;
 }
 
-.concert-card .card-links a.youtube-link {
-    color: #FF0000;
+.icon-btn.ticket-icon-btn svg {
+    stroke: currentColor;
 }
 
-.concert-card .card-links a.youtube-link:hover {
-    background: #FF0000;
+.icon-btn.cal-icon-btn {
+    color: var(--link);
+    border-color: var(--link);
+}
+
+.icon-btn.cal-icon-btn:hover {
+    background: var(--link);
     color: white;
+}
+
+.icon-btn.cal-icon-btn svg {
+    stroke: currentColor;
 }
 
 /* Tier pills */

@@ -113,6 +113,16 @@ def _build_profile():
 
 profile = _build_profile()
 
+# ---------- SVG icons for cards ----------
+_ICON_SPOTIFY = """<svg width="18" height="18" viewBox="0 0 24 24" fill="#1DB954" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>"""
+
+_ICON_YOUTUBE = """<svg width="20" height="14" viewBox="0 0 24 17" fill="#FF0000" xmlns="http://www.w3.org/2000/svg"><path d="M23.495 2.205a3.02 3.02 0 0 0-2.122-2.122C19.505 0 12 0 12 0S4.495 0 2.627.083A3.02 3.02 0 0 0 .505 2.205C0 4.073 0 8 0 8s0 3.927.505 5.795a3.02 3.02 0 0 0 2.122 2.122C4.495 16 12 16 12 16s7.505 0 9.373-.505a3.02 3.02 0 0 0 2.122-2.122C24 11.927 24 8 24 8s0-3.927-.505-5.795zM9.545 11.636V4.364L15.818 8l-6.273 3.636z"/></svg>"""
+
+_ICON_TICKET = """<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M15 5v2M15 11v2M15 17v2M5 5h14a2 2 0 012 2v3a2 2 0 000 4v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3a2 2 0 000-4V7a2 2 0 012-2z"/></svg>"""
+
+_ICON_CALENDAR = """<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>"""
+
+
 # ---------- Concert card renderer ----------
 def render_concert_card(event):
     from urllib.parse import quote
@@ -158,11 +168,11 @@ def render_concert_card(event):
                 {f'<div style="margin-top:4px;">{presale_html}</div>' if presale_html else ''}
             </div>
         </div>
-        <div class="card-links" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;flex-wrap:wrap;gap:12px;">
-            <a href="{spotify_url}" target="_blank" class="preview-link spotify-link">Spotify</a>
-            <a href="{youtube_url}" target="_blank" class="preview-link youtube-link">YouTube</a>
-            <a href="{event.get('url','#')}" target="_blank" class="ticket-link">Tickets &rarr;</a>
-            <a href="{gcal_link}" target="_blank" class="cal-link">+ Calendar</a>
+        <div class="card-icon-links">
+            <a href="{spotify_url}" target="_blank" class="icon-btn" title="Listen on Spotify">{_ICON_SPOTIFY}</a>
+            <a href="{youtube_url}" target="_blank" class="icon-btn" title="Watch on YouTube">{_ICON_YOUTUBE}</a>
+            <a href="{event.get('url','#')}" target="_blank" class="icon-btn ticket-icon-btn" title="Buy Tickets">{_ICON_TICKET}</a>
+            <a href="{gcal_link}" target="_blank" class="icon-btn cal-icon-btn" title="Add to Calendar">{_ICON_CALENDAR}</a>
         </div>
     </div>
     """)
