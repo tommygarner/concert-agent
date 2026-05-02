@@ -221,8 +221,15 @@ h2, [data-testid="stSubheader"] {
 }
 
 .icon-btn:hover {
-    border-color: var(--text-muted);
     transform: translateY(-1px);
+}
+
+.icon-btn.spotify-icon-btn {
+    border-color: #1DB954;
+}
+
+.icon-btn.youtube-icon-btn {
+    border-color: #FF0000;
 }
 
 .icon-btn.ticket-icon-btn {

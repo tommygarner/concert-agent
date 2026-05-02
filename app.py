@@ -206,8 +206,8 @@ def render_concert_card(event):
             </div>
         </div>
         <div class="card-icon-links">
-            <a href="{spotify_url}" target="_blank" class="icon-btn" title="Listen on Spotify">{_ICON_SPOTIFY}</a>
-            <a href="{youtube_url}" target="_blank" class="icon-btn" title="Watch on YouTube">{_ICON_YOUTUBE}</a>
+            <a href="{spotify_url}" target="_blank" class="icon-btn spotify-icon-btn" title="Listen on Spotify">{_ICON_SPOTIFY}</a>
+            <a href="{youtube_url}" target="_blank" class="icon-btn youtube-icon-btn" title="Watch on YouTube">{_ICON_YOUTUBE}</a>
             <a href="{event.get('url','#')}" target="_blank" class="icon-btn ticket-icon-btn" title="Buy Tickets">{_ICON_TICKET}</a>
             <a href="{gcal_link}" target="_blank" class="icon-btn cal-icon-btn" title="Add to Calendar">{_ICON_CALENDAR}</a>
         </div>
