@@ -450,7 +450,7 @@ RULES:
 - ALWAYS when user asks about upcoming shows, what to see this week/weekend, or anything forward-looking: call get_presale_alerts alongside the show search.
 {_discovery_rule}- Always include a make_gcal_url link for any recommended show. No LaTeX. No em dashes.
 - Use price field when user asks about budget. Use start_date/end_date when user asks about time ranges.
-- Search for artists using the EXACT name the user provides. Do NOT rephrase, correct, or substitute artist names.
+- Search for artists using the EXACT name the user provides. Do NOT rephrase, correct, or substitute artist names. If an artist name could be ambiguous (e.g. "Whitney" the indie band vs. "Whitney Houston"), acknowledge the specific artist the user means and use their exact name in all tool calls.
 - If search_concerts returns no results, always try search_do512 before saying nothing was found.
 - If get_venue_details returns no data for a venue, omit that section — do not tell the user you have no data.
 - EFFICIENCY: Call all needed tools in parallel in a single round when possible."""

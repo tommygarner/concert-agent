@@ -842,18 +842,22 @@ def get_artist_top_tracks(artist_name: str):
         return f"Spotify not configured (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET missing)."
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        # Search for the artist
+        # Fetch several candidates and prefer an exact name match so that e.g.
+        # "Whitney" finds the Chicago indie band rather than Whitney Houston.
         search = requests.get(
             "https://api.spotify.com/v1/search",
             headers=headers,
-            params={"q": artist_name, "type": "artist", "limit": 1},
+            params={"q": artist_name, "type": "artist", "limit": 10},
             timeout=10,
         )
         artists = search.json().get("artists", {}).get("items", [])
         if not artists:
             return f"No Spotify artist found for '{artist_name}'."
-        artist_id = artists[0]["id"]
-        artist_display = artists[0]["name"]
+        target = artist_name.strip().lower()
+        exact = next((a for a in artists if a["name"].lower() == target), None)
+        chosen = exact if exact else artists[0]
+        artist_id = chosen["id"]
+        artist_display = chosen["name"]
 
         # Fetch top tracks (US market)
         tracks_resp = requests.get(
