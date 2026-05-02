@@ -800,6 +800,79 @@ def get_similar_artists(artist_name: str):
         return f"Error fetching similar artists: {e}"
 
 
+_SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
+_SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+_spotify_token_cache: dict = {}
+
+
+def _get_spotify_client_token() -> str:
+    """Get a Spotify client-credentials access token (no user OAuth required)."""
+    import base64
+    now = time.time()
+    if _spotify_token_cache.get("expires_at", 0) > now + 30:
+        return _spotify_token_cache["token"]
+    if not _SPOTIFY_CLIENT_ID or not _SPOTIFY_CLIENT_SECRET:
+        return ""
+    creds = base64.b64encode(f"{_SPOTIFY_CLIENT_ID}:{_SPOTIFY_CLIENT_SECRET}".encode()).decode()
+    try:
+        resp = requests.post(
+            "https://accounts.spotify.com/api/token",
+            headers={"Authorization": f"Basic {creds}"},
+            data={"grant_type": "client_credentials"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            _spotify_token_cache["token"] = data["access_token"]
+            _spotify_token_cache["expires_at"] = now + data.get("expires_in", 3600)
+            return _spotify_token_cache["token"]
+    except Exception:
+        pass
+    return ""
+
+
+def get_artist_top_tracks(artist_name: str):
+    """
+    Fetch the top 5 Spotify tracks for an artist using Spotify's public catalog.
+    Call this when recommending a show to give the user a preview of the artist's music.
+    No user login required. Example: get_artist_top_tracks("Whitney")
+    """
+    token = _get_spotify_client_token()
+    if not token:
+        return f"Spotify not configured (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET missing)."
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        # Search for the artist
+        search = requests.get(
+            "https://api.spotify.com/v1/search",
+            headers=headers,
+            params={"q": artist_name, "type": "artist", "limit": 1},
+            timeout=10,
+        )
+        artists = search.json().get("artists", {}).get("items", [])
+        if not artists:
+            return f"No Spotify artist found for '{artist_name}'."
+        artist_id = artists[0]["id"]
+        artist_display = artists[0]["name"]
+
+        # Fetch top tracks (US market)
+        tracks_resp = requests.get(
+            f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks",
+            headers=headers,
+            params={"market": "US"},
+            timeout=10,
+        )
+        tracks = tracks_resp.json().get("tracks", [])[:5]
+        if not tracks:
+            return f"No top tracks found for {artist_display} on Spotify."
+        lines = [f"Top tracks for {artist_display} on Spotify:"]
+        for t in tracks:
+            lines.append(f"  - {t['name']} ({t['album']['name']})")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching Spotify tracks: {e}"
+
+
 def add_venue_details(name: str, parking: str, age_limit: str, vibe: str, tips: str):
     """Add a new venue to the local knowledge base.
     Example: add_venue_details("Parish", "Street parking on E 6th", "18+", "Mid-size indie rock room", "Balcony has best views")

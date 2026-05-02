@@ -13,7 +13,8 @@ from tools import (
     search_concerts, get_distance_to_venue, send_concert_sms, get_venue_details,
     search_small_venue_calendar, search_side_by_side, search_do512, load_artist_profile,
     get_recent_setlist, make_gcal_url, get_presale_alerts, match_artist_to_event,
-    add_venue_details, get_similar_artists, _fetch_do512, _load_setlist_cache,
+    add_venue_details, get_similar_artists, get_artist_top_tracks,
+    _fetch_do512, _load_setlist_cache,
 )
 from spotify_auth import get_auth_url, exchange_code, build_live_profile, get_related_artists
 from db import (
@@ -477,7 +478,7 @@ with tab_chat:
                         st.secrets.get("LASTFM_API_KEY", os.getenv("LASTFM_API_KEY", ""))
                     )
 
-                    _mandatory = ["get_venue_details for the venue"]
+                    _mandatory = ["get_venue_details for the venue", "get_artist_top_tracks for the artist"]
                     if _has_setlist:
                         _mandatory.append("get_recent_setlist for the artist")
                     if _has_maps:
@@ -504,6 +505,7 @@ TOOLS (use them proactively — never ask permission first):
 9. get_presale_alerts: Active/upcoming presales for superfan artists.
 10. add_venue_details: Add new venue to knowledge base.
 11. get_similar_artists: Find artists similar to a given artist (Last.fm).{"" if _has_lastfm else " (NOT configured — do not call)"}
+12. get_artist_top_tracks: Top 5 Spotify tracks for any artist. Call when recommending a show to preview their music.
 
 RULES:
 - NEVER say "Would you like me to find more details?" or "Would you like me to search for...?" — just do it immediately.
@@ -551,7 +553,8 @@ RULES:
                                            get_venue_details, search_small_venue_calendar,
                                            search_side_by_side, search_do512,
                                            get_recent_setlist, make_gcal_url, get_presale_alerts,
-                                           add_venue_details, get_similar_artists],
+                                           add_venue_details, get_similar_artists,
+                                           get_artist_top_tracks],
                                 ),
                                 history=chat_history,
                             )
