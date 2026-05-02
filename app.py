@@ -259,6 +259,27 @@ def render_rich_card(evt, current_profile):
     """)
 
 
+# ---------- Profile builder (reads session state / files, no widgets needed) ----------
+def _build_profile():
+    mode = st.session_state.get("mode", "Connect Spotify")
+    if mode == "Connect Spotify" and st.session_state.get("sp_token"):
+        return st.session_state.get("sp_profile", {})
+    elif mode == "My History (Tommy)":
+        if Path("data/artist_profile.json").exists():
+            with open("data/artist_profile.json", "r") as f:
+                data = json.load(f)
+            return {
+                item['artist'].lower(): {'score': item['weighted_score'], 'tier': item.get('tier', 'fan')}
+                for item in data
+            }
+    elif mode == "Guest Mode":
+        guests = st.session_state.get("guest_artists_input", "Radiohead, Khruangbin")
+        return {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guests.split(",") if a.strip()}
+    return {}
+
+profile = _build_profile()
+
+
 # ---------- Profile context builder ----------
 def get_profile_context():
     rec = st.session_state.get("rec_mode", "Superfan")
@@ -314,65 +335,8 @@ def get_profile_context():
 # ========== SIDEBAR ==========
 with st.sidebar:
     st.title("Concert Agent")
-    profile = {}
 
-    # === Profile & Settings ===
-    with st.expander("Profile & Settings", expanded=True):
-        MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
-        mode = st.selectbox(
-            "Persona",
-            MODES,
-            index=MODES.index(st.session_state.get("mode", "Connect Spotify")),
-            key="mode",
-        )
-
-        if mode == "Connect Spotify":
-            if st.session_state.get("sp_token"):
-                display_name = st.session_state.get("sp_display_name", "Spotify User")
-                st.success(f"Connected as {display_name}")
-                profile = st.session_state.get("sp_profile", {})
-                n_superfans = sum(1 for v in profile.values() if v.get("tier") == "superfan")
-                superfans = [name.title() for name, info in profile.items() if info.get("tier") == "superfan"][:8]
-                st.caption(f"{n_superfans} superfans | {len(profile)} total artists")
-                if superfans:
-                    st.caption("Top: " + ", ".join(superfans))
-                if st.button("Disconnect"):
-                    for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token", "db_user_id"]:
-                        st.session_state.pop(key, None)
-                    st.rerun()
-            else:
-                st.info("Connect Spotify for personalized picks.")
-                auth_url = get_auth_url()
-                st.link_button("Connect Spotify", auth_url)
-
-        elif mode == "Guest Mode":
-            guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
-            profile = {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guest_artists.split(",") if a.strip()}
-
-        elif mode == "My History (Tommy)":
-            if Path("data/artist_profile.json").exists():
-                with open("data/artist_profile.json", "r") as f:
-                    data = json.load(f)
-                profile = {
-                    item['artist'].lower(): {'score': item['weighted_score'], 'tier': item.get('tier', 'fan')}
-                    for item in data
-                }
-                n_sf = sum(1 for v in profile.values() if v['tier'] == 'superfan')
-                st.success(f"Loaded: {n_sf} superfans, {len(profile)} artists")
-
-        st.divider()
-        rec_mode = st.radio(
-            "Mode", ["Superfan", "Discovery"],
-            help="Superfan: known artists only. Discovery: includes similar artists.",
-            key="rec_mode",
-        )
-        st.caption(f"City: {CITY}")
-        user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
-        os.environ["HOME_ADDRESS"] = user_addr
-
-    st.divider()
-
-    # === Chat Messages ===
+    # === Chat Messages — always visible at top ===
     chat_sidebar = st.container(height=320, border=False)
     with chat_sidebar:
         msgs_to_show = st.session_state.messages[-8:]
@@ -570,6 +534,57 @@ RULES:
                         st.info("Cooldown complete. Try again.")
                     else:
                         st.error("All models busy. Try again in 60 seconds.")
+
+    st.divider()
+
+    # === Profile & Settings (collapsed by default) ===
+    with st.expander("Profile & Settings", expanded=False):
+        MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
+        mode = st.selectbox(
+            "Persona",
+            MODES,
+            index=MODES.index(st.session_state.get("mode", "Connect Spotify")),
+            key="mode",
+        )
+
+        if mode == "Connect Spotify":
+            if st.session_state.get("sp_token"):
+                display_name = st.session_state.get("sp_display_name", "Spotify User")
+                st.success(f"Connected as {display_name}")
+                _p = st.session_state.get("sp_profile", {})
+                n_superfans = sum(1 for v in _p.values() if v.get("tier") == "superfan")
+                superfans = [n.title() for n, info in _p.items() if info.get("tier") == "superfan"][:8]
+                st.caption(f"{n_superfans} superfans | {len(_p)} total artists")
+                if superfans:
+                    st.caption("Top: " + ", ".join(superfans))
+                if st.button("Disconnect"):
+                    for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token", "db_user_id"]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
+            else:
+                st.info("Connect Spotify for personalized picks.")
+                auth_url = get_auth_url()
+                st.link_button("Connect Spotify", auth_url)
+
+        elif mode == "Guest Mode":
+            st.text_input("Favorite Artists", "Radiohead, Khruangbin", key="guest_artists_input")
+
+        elif mode == "My History (Tommy)":
+            if Path("data/artist_profile.json").exists():
+                n_sf = sum(1 for v in profile.values() if v.get('tier') == 'superfan')
+                st.success(f"Loaded: {n_sf} superfans, {len(profile)} artists")
+            else:
+                st.warning("Run ingest_spotify.py first.")
+
+        st.divider()
+        st.radio(
+            "Mode", ["Superfan", "Discovery"],
+            help="Superfan: known artists only. Discovery: includes similar artists.",
+            key="rec_mode",
+        )
+        st.caption(f"City: {CITY}")
+        user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
+        os.environ["HOME_ADDRESS"] = user_addr
 
     st.divider()
     col1, col2 = st.columns(2)
