@@ -115,31 +115,52 @@ profile = _build_profile()
 
 # ---------- Concert card renderer ----------
 def render_concert_card(event):
+    from urllib.parse import quote
     tag = TIER_TAG.get(event.get('tier'), "")
     gcal_link = make_gcal_url(event['name'], event.get('date', ''), event.get('venue', ''), event.get('url', ''))
     venue = event.get('venue', '')
     date = event.get('date', 'TBD')
     price = event.get('price', '')
+    image_url = event.get('image_url', '')
     meta_parts = [venue, date]
     if price:
         meta_parts.append(price)
     meta_str = " &middot; ".join(p for p in meta_parts if p)
+
     presale = event.get('presale', '')
     if presale == 'active':
-        presale_html = '<div><span class="presale-badge">Presale Active Now</span></div>'
+        presale_html = '<span class="presale-badge">Presale Active Now</span>'
     elif presale == 'upcoming':
-        presale_html = '<div><span class="presale-badge upcoming">Presale Coming Soon</span></div>'
+        presale_html = '<span class="presale-badge upcoming">Presale Coming Soon</span>'
     else:
         presale_html = ''
+
+    img_html = (
+        f'<img src="{image_url}" class="browse-card-img" alt="{event["name"]}" />'
+        if image_url else
+        '<div class="browse-card-img browse-card-img-placeholder"></div>'
+    )
+
+    enc_name = quote(event['name'])
+    spotify_url = f"https://open.spotify.com/search/{enc_name}"
+    youtube_url = f"https://www.youtube.com/results?search_query={enc_name}+official"
+
     st.html(f"""
     <div class="concert-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span class="card-artist">{event['name']}</span>
-            {tag}
+        <div class="browse-card-top">
+            {img_html}
+            <div class="browse-card-body">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:3px;">
+                    <span class="card-artist">{event['name']}</span>
+                    {tag}
+                </div>
+                <div class="card-meta">{meta_str}</div>
+                {f'<div style="margin-top:4px;">{presale_html}</div>' if presale_html else ''}
+            </div>
         </div>
-        <div class="card-meta">{meta_str}</div>
-        {presale_html}
-        <div class="card-links">
+        <div class="card-links" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;flex-wrap:wrap;gap:12px;">
+            <a href="{spotify_url}" target="_blank" class="preview-link spotify-link">Spotify</a>
+            <a href="{youtube_url}" target="_blank" class="preview-link youtube-link">YouTube</a>
             <a href="{event.get('url','#')}" target="_blank" class="ticket-link">Tickets &rarr;</a>
             <a href="{gcal_link}" target="_blank" class="cal-link">+ Calendar</a>
         </div>
@@ -580,6 +601,22 @@ with tab_browse:
                     price_str = f"${low:.0f}-${high:.0f}"
                 elif low:
                     price_str = f"From ${low:.0f}"
+            # Pick best image from Ticketmaster: prefer 4_3 non-fallback at ~500px wide
+            image_url = ""
+            imgs = e.get('images', [])
+            for ratio in ('4_3', '3_2', '16_9'):
+                for img in imgs:
+                    if img.get('ratio') == ratio and not img.get('fallback', True) and img.get('width', 0) >= 200:
+                        image_url = img['url']
+                        break
+                if image_url:
+                    break
+            if not image_url:
+                for img in imgs:
+                    if not img.get('fallback', True) and img.get('width', 0) >= 200:
+                        image_url = img['url']
+                        break
+
             ranked.append({
                 "name": name,
                 "venue": e.get('_embedded', {}).get('venues', [{}])[0].get('name', ''),
@@ -587,6 +624,7 @@ with tab_browse:
                 "url": e.get('url', ''),
                 "score": score, "tier": tier, "price": price_str,
                 "presale": _get_presale_info(name) if score > 0 else "",
+                "image_url": image_url,
             })
 
         matched = [r for r in ranked if r['score'] > 0]
