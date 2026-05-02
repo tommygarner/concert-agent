@@ -195,6 +195,21 @@ def get_profile_context():
         ctx += "MODE: Discovery. Surface shows for known artists AND discovery targets. Explain connections."
     else:
         ctx += "MODE: Superfan. Only recommend shows for known artists."
+
+    # Append attendance history so the agent can reference past shows
+    db_uid = st.session_state.get("db_user_id")
+    if db_uid:
+        try:
+            past = get_past_shows(db_uid, limit=5)
+            if past:
+                lines = [
+                    f"{s.get('event_name','?')} @ {s.get('venue','?')} ({s.get('event_date','')})"
+                    for s in past
+                ]
+                ctx += f" ATTENDED SHOWS: {'; '.join(lines)}."
+        except Exception:
+            pass
+
     return ctx
 
 
@@ -639,6 +654,32 @@ with tab_browse:
         matched.sort(key=lambda x: x['score'], reverse=True)
         unmatched = [r for r in ranked if r['score'] == 0]
         unmatched.sort(key=lambda x: x['date'] or '')
+
+        # "Because you saw" section — surface picks tied to attended shows
+        _browse_uid = st.session_state.get("db_user_id")
+        if _browse_uid:
+            try:
+                _past = get_past_shows(_browse_uid, limit=5)
+                _because_sections = {}
+                for _show in _past:
+                    _artist = _show.get("event_name", "")
+                    if not _artist:
+                        continue
+                    _artist_lower = _artist.lower()
+                    _hits = [
+                        r for r in ranked
+                        if _artist_lower in r["name"].lower() and r not in matched
+                    ]
+                    if _hits:
+                        _because_sections[_artist] = _hits[:2]
+                for _seed_artist, _hits in _because_sections.items():
+                    st.subheader(f"Because you saw {_seed_artist}")
+                    cols = st.columns(2)
+                    for i, event in enumerate(_hits):
+                        with cols[i % 2]:
+                            render_concert_card(event)
+            except Exception:
+                pass
 
         if matched:
             st.subheader(f"Your Matches ({len(matched)})")
