@@ -403,8 +403,8 @@ def get_profile_context():
 # ========== MAIN CONTENT ==========
 st.title("Austin Concert Agent")
 
-tab_chat, tab_browse, tab_presales, tab_shows, tab_settings = st.tabs(
-    ["Chat", "Browse Shows", "Presales", "My Shows", "Settings"]
+tab_browse, tab_chat, tab_presales, tab_shows, tab_settings = st.tabs(
+    ["Browse Shows", "Chat", "Presales", "My Shows", "Settings"]
 )
 
 # ---------- TAB: Chat ----------
