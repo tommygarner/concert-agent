@@ -5,6 +5,7 @@ import json
 import time
 import re
 from pathlib import Path
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types as genai_types
@@ -382,6 +383,11 @@ tab_chat, tab_browse, tab_presales, tab_shows = st.tabs(["Chat", "Browse Shows",
 
 # ---------- TAB: Chat ----------
 with tab_chat:
+    # Consume any queued quick-action query (set by buttons before chat_input runs)
+    _pending_query = st.session_state.get("_quick_query")
+    if "_quick_query" in st.session_state:
+        del st.session_state["_quick_query"]
+
     # Scrollable message pane — new messages appear at the bottom
     chat_pane = st.container(height=520, border=False)
     with chat_pane:
@@ -412,7 +418,23 @@ with tab_chat:
     </script>
     """, height=0)
 
-    user_input = st.chat_input("Ask about a show, artist, or venue...")
+    # --- Quick-action: This Weekend ---
+    _today = datetime.now()
+    _dow = _today.weekday()  # 0=Mon … 5=Sat, 6=Sun
+    _days_to_sat = 5 - _dow if _dow < 5 else (0 if _dow == 5 else -1)
+    _sat = _today + timedelta(days=_days_to_sat)
+    _sun = _sat + timedelta(days=1)
+    _weekend_label = f"{_sat.strftime('%b')} {_sat.day}-{_sun.day}"
+    if st.button(f"This Weekend  —  {_weekend_label}", key="btn_this_weekend"):
+        st.session_state["_quick_query"] = (
+            f"What are the best shows this weekend "
+            f"({_sat.strftime('%B')} {_sat.day}-{_sun.day}) in Austin? "
+            f"Search Ticketmaster, Do512, and Side By Side Shows. "
+            f"Use start_date={_sat.strftime('%Y-%m-%d')} and end_date={_sun.strftime('%Y-%m-%d')}."
+        )
+        st.rerun()
+
+    user_input = st.chat_input("Ask about a show, artist, or venue...") or _pending_query
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         db_uid = st.session_state.get("db_user_id")
