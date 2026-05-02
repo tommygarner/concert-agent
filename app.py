@@ -496,7 +496,11 @@ RULES:
                             response = chat.send_message(user_input)
                             raw_text = response.text or ""
                             clean_text = re.sub(r'\$(.*?)\$', r'\1', raw_text)
-                            clean_text = clean_text.replace('—', ',').replace('–', ',')
+                            clean_text = clean_text.replace('—', ',').replace('–', ',').strip()
+                            # Gemini sometimes returns no text after tool calls —
+                            # surface a fallback so the user sees something.
+                            if not clean_text:
+                                clean_text = "I searched for shows but the response came back empty. Try asking again or check the Browse Shows tab."
                             st.markdown(clean_text)
 
                             _NEGATIVE = ("cannot find", "no results", "unable to find",
