@@ -400,6 +400,30 @@ def get_profile_context():
     return ctx
 
 
+# ========== SPOTIFY CONNECT PROMPT (once per session) ==========
+@st.dialog("Welcome to Austin Concert Agent", width="small")
+def _spotify_prompt():
+    st.markdown(
+        "Connect your **Spotify** account to get personalized show recommendations "
+        "ranked by your actual listening history."
+    )
+    st.markdown(
+        "- Superfan artists are flagged on every show\n"
+        "- Presale alerts for artists you love\n"
+        "- Chat agent knows your taste automatically"
+    )
+    st.divider()
+    auth_url = get_auth_url()
+    st.link_button("Connect Spotify", auth_url, use_container_width=True)
+    st.caption("Read-only access. No data is stored on our servers.")
+    if st.button("Skip for now", use_container_width=True):
+        st.rerun()
+
+if not st.session_state.get("sp_token") and not st.session_state.get("spotify_prompt_shown"):
+    st.session_state["spotify_prompt_shown"] = True
+    _spotify_prompt()
+
+
 # ========== MAIN CONTENT ==========
 st.title("Austin Concert Agent")
 
