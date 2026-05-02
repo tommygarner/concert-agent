@@ -87,133 +87,6 @@ TIER_TAG = {
     'casual': "<span class='tier-pill casual'>Casual</span>",
 }
 
-# ---------- Sidebar ----------
-with st.sidebar:
-    st.title("Concert Agent")
-    profile = {}
-
-    MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
-    mode = st.selectbox(
-        "Persona",
-        MODES,
-        index=MODES.index(st.session_state.get("mode", "Connect Spotify")),
-        key="mode",
-    )
-
-    if mode == "Connect Spotify":
-        if st.session_state.get("sp_token"):
-            display_name = st.session_state.get("sp_display_name", "Spotify User")
-            st.success(f"Connected as {display_name}")
-            profile = st.session_state.get("sp_profile", {})
-            n_superfans = sum(1 for v in profile.values() if v.get("tier") == "superfan")
-            superfans = [name.title() for name, info in profile.items() if info.get("tier") == "superfan"][:8]
-            st.caption(f"{n_superfans} superfans | {len(profile)} total artists")
-            if superfans:
-                st.caption("Top: " + ", ".join(superfans))
-            if st.button("Disconnect"):
-                for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token", "db_user_id"]:
-                    st.session_state.pop(key, None)
-                st.rerun()
-        else:
-            st.info("Connect Spotify for personalized picks.")
-            auth_url = get_auth_url()
-            st.link_button("Connect Spotify", auth_url)
-
-    elif mode == "Guest Mode":
-        guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
-        profile = {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guest_artists.split(",") if a.strip()}
-
-    elif mode == "My History (Tommy)":
-        if Path("data/artist_profile.json").exists():
-            with open("data/artist_profile.json", "r") as f:
-                data = json.load(f)
-            profile = {
-                item['artist'].lower(): {'score': item['weighted_score'], 'tier': item.get('tier', 'fan')}
-                for item in data
-            }
-            n_sf = sum(1 for v in profile.values() if v['tier'] == 'superfan')
-            st.success(f"Loaded: {n_sf} superfans, {len(profile)} artists")
-
-    st.divider()
-    rec_mode = st.radio(
-        "Mode", ["Superfan", "Discovery"],
-        help="Superfan: known artists only. Discovery: includes similar artists.",
-        key="rec_mode",
-    )
-    st.caption(f"City: {CITY}")
-    user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
-    os.environ["HOME_ADDRESS"] = user_addr
-
-    st.divider()
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Clear Chat"):
-            st.session_state.messages = []
-            uid = st.session_state.get("db_user_id")
-            if uid:
-                clear_chat_history(uid)
-            st.rerun()
-    with col2:
-        if st.button("Send Digest"):
-            from weekly_digest import send_digest
-            with st.spinner("Sending..."):
-                send_digest()
-                st.success("Sent!")
-
-
-# ---------- Profile context builder ----------
-def get_profile_context():
-    rec = st.session_state.get("rec_mode", "Superfan")
-    if st.session_state.get("sp_token") and st.session_state.get("sp_profile"):
-        live = st.session_state["sp_profile"]
-        sorted_artists = sorted(live.items(), key=lambda x: x[1]["score"], reverse=True)[:30]
-        superfans = [name.title() for name, info in sorted_artists if info.get("tier") == "superfan"]
-        fans = [name.title() for name, info in sorted_artists if info.get("tier") == "fan"]
-    elif Path("data/artist_profile.json").exists():
-        with open("data/artist_profile.json", "r") as f:
-            d = json.load(f)
-        top = sorted(d, key=lambda x: x['weighted_score'], reverse=True)[:30]
-        superfans = [a['artist'] for a in top if a.get('tier') == 'superfan']
-        fans = [a['artist'] for a in top if a.get('tier') == 'fan']
-    else:
-        return ""
-
-    ctx = ""
-    if superfans:
-        ctx += f"SUPERFANS (always flag): {', '.join(superfans)}. "
-    if fans:
-        ctx += f"FANS (strong interest): {', '.join(fans[:15])}. "
-
-    if rec == "Discovery":
-        sp = st.session_state.get("sp_client")
-        artist_ids = st.session_state.get("sp_artist_ids", {})
-        discovery = []
-        if sp and artist_ids:
-            p = st.session_state.get("sp_profile", {})
-            discovery = get_related_artists(sp, artist_ids, p)
-        if discovery:
-            ctx += f"DISCOVERY TARGETS: {', '.join(discovery)}. "
-        ctx += "MODE: Discovery. Surface shows for known artists AND discovery targets. Explain connections."
-    else:
-        ctx += "MODE: Superfan. Only recommend shows for known artists."
-
-    # Append attendance history so the agent can reference past shows
-    db_uid = st.session_state.get("db_user_id")
-    if db_uid:
-        try:
-            past = get_past_shows(db_uid, limit=5)
-            if past:
-                lines = [
-                    f"{s.get('event_name','?')} @ {s.get('venue','?')} ({s.get('event_date','')})"
-                    for s in past
-                ]
-                ctx += f" ATTENDED SHOWS: {'; '.join(lines)}."
-        except Exception:
-            pass
-
-    return ctx
-
-
 # ---------- Concert card renderer ----------
 def render_concert_card(event):
     tag = TIER_TAG.get(event.get('tier'), "")
@@ -255,7 +128,6 @@ def _find_events_in_text(text, do512_events):
     matched, seen = [], set()
     for evt in do512_events:
         name = evt.get("name", "")
-        # Skip junk/empty names — short strings like "-" match everywhere (e.g. in URLs)
         if not name or len(name) < 3 or name in seen:
             continue
         if name.lower() in text_lower:
@@ -309,7 +181,6 @@ def render_rich_card(evt, current_profile):
     _, tier = match_artist_to_event(name, current_profile)
     tier_tag = TIER_TAG.get(tier, "")
 
-    # Date
     date_display = date_raw
     try:
         dt = _dt.strptime(date_raw, "%Y-%m-%d")
@@ -320,14 +191,12 @@ def render_rich_card(evt, current_profile):
     meta_parts = [p for p in [venue, date_display, price] if p]
     meta_str = " &middot; ".join(meta_parts)
 
-    # Setlist
     setlist = _get_setlist_snippet(name)
     setlist_html = (
         f'<div class="card-setlist"><span class="card-setlist-label">Last setlist:</span> {setlist}</div>'
         if setlist else ""
     )
 
-    # Presale badge
     ps = _get_presale_info(name)
     presale_html = ""
     if ps == "active":
@@ -335,13 +204,11 @@ def render_rich_card(evt, current_profile):
     elif ps == "upcoming":
         presale_html = '<div class="presale-badge upcoming">Presale coming soon</div>'
 
-    # Poster image
     img_html = (
         f'<div class="rich-card-img"><img src="{image_url}" alt="{name}" /></div>'
         if image_url else ""
     )
 
-    # Map
     map_query = address if address else (f"{venue}, Austin, TX" if venue else "")
     map_html = ""
     if map_query:
@@ -392,105 +259,196 @@ def render_rich_card(evt, current_profile):
     """)
 
 
-# ========== MAIN CONTENT ==========
-st.title("Austin Concert Agent")
+# ---------- Profile context builder ----------
+def get_profile_context():
+    rec = st.session_state.get("rec_mode", "Superfan")
+    if st.session_state.get("sp_token") and st.session_state.get("sp_profile"):
+        live = st.session_state["sp_profile"]
+        sorted_artists = sorted(live.items(), key=lambda x: x[1]["score"], reverse=True)[:30]
+        superfans = [name.title() for name, info in sorted_artists if info.get("tier") == "superfan"]
+        fans = [name.title() for name, info in sorted_artists if info.get("tier") == "fan"]
+    elif Path("data/artist_profile.json").exists():
+        with open("data/artist_profile.json", "r") as f:
+            d = json.load(f)
+        top = sorted(d, key=lambda x: x['weighted_score'], reverse=True)[:30]
+        superfans = [a['artist'] for a in top if a.get('tier') == 'superfan']
+        fans = [a['artist'] for a in top if a.get('tier') == 'fan']
+    else:
+        return ""
 
-tab_chat, tab_browse, tab_presales, tab_shows = st.tabs(["Chat", "Browse Shows", "Presales", "My Shows"])
+    ctx = ""
+    if superfans:
+        ctx += f"SUPERFANS (always flag): {', '.join(superfans)}. "
+    if fans:
+        ctx += f"FANS (strong interest): {', '.join(fans[:15])}. "
 
-# ---------- TAB: Chat ----------
-with tab_chat:
-    # Consume any queued quick-action query (set by buttons before chat_input runs)
-    _pending_query = st.session_state.get("_quick_query")
-    if "_quick_query" in st.session_state:
-        del st.session_state["_quick_query"]
+    if rec == "Discovery":
+        sp = st.session_state.get("sp_client")
+        artist_ids = st.session_state.get("sp_artist_ids", {})
+        discovery = []
+        if sp and artist_ids:
+            p = st.session_state.get("sp_profile", {})
+            discovery = get_related_artists(sp, artist_ids, p)
+        if discovery:
+            ctx += f"DISCOVERY TARGETS: {', '.join(discovery)}. "
+        ctx += "MODE: Discovery. Surface shows for known artists AND discovery targets. Explain connections."
+    else:
+        ctx += "MODE: Superfan. Only recommend shows for known artists."
 
-    # Scrollable message pane — new messages appear at the bottom
-    chat_pane = st.container(height=520, border=False)
-    with chat_pane:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"] or "")
-                if message["role"] == "assistant":
-                    for evt in message.get("events", []):
-                        render_rich_card(evt, profile)
+    db_uid = st.session_state.get("db_user_id")
+    if db_uid:
+        try:
+            past = get_past_shows(db_uid, limit=5)
+            if past:
+                lines = [
+                    f"{s.get('event_name','?')} @ {s.get('venue','?')} ({s.get('event_date','')})"
+                    for s in past
+                ]
+                ctx += f" ATTENDED SHOWS: {'; '.join(lines)}."
+        except Exception:
+            pass
 
-    # Auto-scroll the pane to the bottom after each render
-    import streamlit.components.v1 as _components
-    _components.html("""
-    <script>
-        (function() {
-            function scrollPane() {
-                var panes = window.parent.document.querySelectorAll(
-                    'section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] > div'
-                );
-                panes.forEach(function(el) {
-                    if (el.scrollHeight > el.clientHeight) {
-                        el.scrollTop = el.scrollHeight;
-                    }
-                });
-            }
-            setTimeout(scrollPane, 150);
-        })();
-    </script>
-    """, height=0)
+    return ctx
 
-    # --- Quick-action: This Weekend ---
+
+# ========== SIDEBAR ==========
+with st.sidebar:
+    st.title("Concert Agent")
+    profile = {}
+
+    # === Profile & Settings ===
+    with st.expander("Profile & Settings", expanded=True):
+        MODES = ["Connect Spotify", "My History (Tommy)", "Guest Mode"]
+        mode = st.selectbox(
+            "Persona",
+            MODES,
+            index=MODES.index(st.session_state.get("mode", "Connect Spotify")),
+            key="mode",
+        )
+
+        if mode == "Connect Spotify":
+            if st.session_state.get("sp_token"):
+                display_name = st.session_state.get("sp_display_name", "Spotify User")
+                st.success(f"Connected as {display_name}")
+                profile = st.session_state.get("sp_profile", {})
+                n_superfans = sum(1 for v in profile.values() if v.get("tier") == "superfan")
+                superfans = [name.title() for name, info in profile.items() if info.get("tier") == "superfan"][:8]
+                st.caption(f"{n_superfans} superfans | {len(profile)} total artists")
+                if superfans:
+                    st.caption("Top: " + ", ".join(superfans))
+                if st.button("Disconnect"):
+                    for key in ["sp_client", "sp_user_id", "sp_display_name", "sp_profile", "sp_token", "db_user_id"]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
+            else:
+                st.info("Connect Spotify for personalized picks.")
+                auth_url = get_auth_url()
+                st.link_button("Connect Spotify", auth_url)
+
+        elif mode == "Guest Mode":
+            guest_artists = st.text_input("Favorite Artists", "Radiohead, Khruangbin")
+            profile = {a.strip().lower(): {'score': 100.0, 'tier': 'superfan'} for a in guest_artists.split(",") if a.strip()}
+
+        elif mode == "My History (Tommy)":
+            if Path("data/artist_profile.json").exists():
+                with open("data/artist_profile.json", "r") as f:
+                    data = json.load(f)
+                profile = {
+                    item['artist'].lower(): {'score': item['weighted_score'], 'tier': item.get('tier', 'fan')}
+                    for item in data
+                }
+                n_sf = sum(1 for v in profile.values() if v['tier'] == 'superfan')
+                st.success(f"Loaded: {n_sf} superfans, {len(profile)} artists")
+
+        st.divider()
+        rec_mode = st.radio(
+            "Mode", ["Superfan", "Discovery"],
+            help="Superfan: known artists only. Discovery: includes similar artists.",
+            key="rec_mode",
+        )
+        st.caption(f"City: {CITY}")
+        user_addr = st.text_input("Home Address", value=os.getenv("HOME_ADDRESS", "303 E 38th St, Austin, TX, 78705"))
+        os.environ["HOME_ADDRESS"] = user_addr
+
+    st.divider()
+
+    # === Chat Messages ===
+    chat_sidebar = st.container(height=320, border=False)
+    with chat_sidebar:
+        msgs_to_show = st.session_state.messages[-8:]
+        if not msgs_to_show:
+            st.caption("Ask me about shows, artists, or venues.")
+        for msg in msgs_to_show:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg.get("content") or "")
+
+    # === Chat Input Form ===
     _today = datetime.now()
-    _dow = _today.weekday()  # 0=Mon … 5=Sat, 6=Sun
+    _dow = _today.weekday()
     _days_to_sat = 5 - _dow if _dow < 5 else (0 if _dow == 5 else -1)
     _sat = _today + timedelta(days=_days_to_sat)
     _sun = _sat + timedelta(days=1)
-    _weekend_label = f"{_sat.strftime('%b')} {_sat.day}-{_sun.day}"
-    if st.button(f"This Weekend  —  {_weekend_label}", key="btn_this_weekend"):
-        st.session_state["_quick_query"] = (
+    _weekend_label = f"This Weekend ({_sat.strftime('%b')} {_sat.day}-{_sun.day})"
+
+    with st.form("chat_form", clear_on_submit=True):
+        sidebar_input = st.text_input(
+            "Message",
+            placeholder="Ask about a show, artist, or venue...",
+            label_visibility="collapsed",
+        )
+        col_send, col_wknd = st.columns([2, 3])
+        with col_send:
+            submitted = st.form_submit_button("Send", use_container_width=True)
+        with col_wknd:
+            weekend_btn = st.form_submit_button(_weekend_label, use_container_width=True)
+
+    user_input = None
+    if submitted and sidebar_input.strip():
+        user_input = sidebar_input.strip()
+    elif weekend_btn:
+        user_input = (
             f"What are the best shows this weekend "
             f"({_sat.strftime('%B')} {_sat.day}-{_sun.day}) in Austin? "
             f"Search Ticketmaster, Do512, and Side By Side Shows. "
             f"Use start_date={_sat.strftime('%Y-%m-%d')} and end_date={_sun.strftime('%Y-%m-%d')}."
         )
-        st.rerun()
 
-    user_input = st.chat_input("Ask about a show, artist, or venue...") or _pending_query
+    # === Process chat input ===
     if user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
         db_uid = st.session_state.get("db_user_id")
         if db_uid:
             save_message(db_uid, "user", user_input)
-        with st.chat_message("user"):
-            st.markdown(user_input)
 
-        with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
             if not _genai_client:
                 st.error("Missing Gemini API Key")
             else:
-                with st.spinner("Agent is working..."):
-                    profile_ctx = get_profile_context()
+                profile_ctx = get_profile_context()
 
-                    # Detect which optional tools are configured so we only instruct
-                    # the agent to call tools that won't just return error strings.
-                    _has_setlist = bool(
-                        st.secrets.get("SETLISTFM_API_KEY", os.getenv("SETLISTFM_API_KEY", ""))
-                    )
-                    _has_maps = bool(
-                        st.secrets.get("GOOGLE_MAPS_API_KEY", os.getenv("GOOGLE_MAPS_API_KEY", ""))
-                    )
-                    _has_lastfm = bool(
-                        st.secrets.get("LASTFM_API_KEY", os.getenv("LASTFM_API_KEY", ""))
-                    )
+                _has_setlist = bool(
+                    st.secrets.get("SETLISTFM_API_KEY", os.getenv("SETLISTFM_API_KEY", ""))
+                )
+                _has_maps = bool(
+                    st.secrets.get("GOOGLE_MAPS_API_KEY", os.getenv("GOOGLE_MAPS_API_KEY", ""))
+                )
+                _has_lastfm = bool(
+                    st.secrets.get("LASTFM_API_KEY", os.getenv("LASTFM_API_KEY", ""))
+                )
 
-                    _mandatory = ["get_venue_details for the venue", "get_artist_top_tracks for the artist"]
-                    if _has_setlist:
-                        _mandatory.append("get_recent_setlist for the artist")
-                    if _has_maps:
-                        _mandatory.append("get_distance_to_venue for travel time")
-                    _mandatory_str = " + ".join(_mandatory)
+                _mandatory = ["get_venue_details for the venue", "get_artist_top_tracks for the artist"]
+                if _has_setlist:
+                    _mandatory.append("get_recent_setlist for the artist")
+                if _has_maps:
+                    _mandatory.append("get_distance_to_venue for travel time")
+                _mandatory_str = " + ".join(_mandatory)
 
-                    _discovery_rule = (
-                        "- When the user mentions an unfamiliar artist: call get_similar_artists to surface related acts.\n"
-                        if _has_lastfm else ""
-                    )
+                _discovery_rule = (
+                    "- When the user mentions an unfamiliar artist: call get_similar_artists to surface related acts.\n"
+                    if _has_lastfm else ""
+                )
 
-                    sys_instr = f"""You are a professional Austin Concert Concierge.
+                sys_instr = f"""You are a professional Austin Concert Concierge.
 USER TASTE: {profile_ctx}
 
 TOOLS (use them proactively — never ask permission first):
@@ -520,110 +478,134 @@ RULES:
 - If get_venue_details returns no data for a venue, omit that section — do not tell the user you have no data.
 - EFFICIENCY: Call all needed tools in parallel in a single round when possible."""
 
-                    models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
-                    success = False
-                    retry_wait = 0
+                models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
+                success = False
+                retry_wait = 0
 
-                    if "last_gemini_call" in st.session_state:
-                        elapsed = time.time() - st.session_state.last_gemini_call
-                        if elapsed < 2.0:
-                            time.sleep(2.0 - elapsed)
+                if "last_gemini_call" in st.session_state:
+                    elapsed = time.time() - st.session_state.last_gemini_call
+                    if elapsed < 2.0:
+                        time.sleep(2.0 - elapsed)
 
-                    # Build conversation history (last 10 exchanges = 20 msgs, excluding current)
-                    prior_msgs = st.session_state.messages[:-1][-20:]
-                    chat_history = []
-                    for msg in prior_msgs:
-                        role = "user" if msg["role"] == "user" else "model"
-                        text = msg.get("content") or ""  # guard against explicit None
-                        if text:
-                            chat_history.append(
-                                genai_types.Content(
-                                    role=role,
-                                    parts=[genai_types.Part(text=text)],
-                                )
+                prior_msgs = st.session_state.messages[:-1][-20:]
+                chat_history = []
+                for msg in prior_msgs:
+                    role = "user" if msg["role"] == "user" else "model"
+                    text = msg.get("content") or ""
+                    if text:
+                        chat_history.append(
+                            genai_types.Content(
+                                role=role,
+                                parts=[genai_types.Part(text=text)],
                             )
+                        )
 
-                    for model_name in models:
-                        try:
-                            chat = _genai_client.chats.create(
-                                model=model_name,
-                                config=genai_types.GenerateContentConfig(
-                                    system_instruction=sys_instr,
-                                    tools=[search_concerts, get_distance_to_venue, send_concert_sms,
-                                           get_venue_details, search_small_venue_calendar,
-                                           search_side_by_side, search_do512,
-                                           get_recent_setlist, make_gcal_url, get_presale_alerts,
-                                           add_venue_details, get_similar_artists,
-                                           get_artist_top_tracks],
-                                ),
-                                history=chat_history,
-                            )
-                            st.session_state.last_gemini_call = time.time()
-                            response = chat.send_message(user_input)
-                            raw_text = response.text or ""
-                            clean_text = re.sub(r'\$(.*?)\$', r'\1', raw_text)
-                            # Strip em dashes from agent output
-                            clean_text = clean_text.replace('\u2014', ',').replace('\u2013', ',')
-                            st.markdown(clean_text)
-                            # Find do512 events mentioned in response and store for card rendering.
-                            # Skip if the agent returned a negative/not-found response to avoid
-                            # false positives from event names appearing inside error phrases.
-                            _NEGATIVE = ("cannot find", "no results", "unable to find",
-                                         "couldn't find", "no upcoming", "no shows",
-                                         "no concerts", "no events", "check the spelling",
-                                         "don't have any information", "no information")
-                            if any(p in clean_text.lower() for p in _NEGATIVE):
-                                matched_events = []
-                            else:
-                                try:
-                                    do512_evts = _fetch_do512()
-                                    matched_events = _find_events_in_text(clean_text, do512_evts)
-                                except Exception:
-                                    matched_events = []
-                            for evt in matched_events:
-                                render_rich_card(evt, profile)
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": clean_text,
-                                "events": matched_events,
-                            })
-                            if db_uid:
-                                save_message(db_uid, "assistant", clean_text)
-                            success = True
-                            st.rerun()
-                            break
-                        except Exception as e:
-                            err_str = str(e)
-                            if "429" in err_str or "quota" in err_str.lower():
-                                match = re.search(r"retry in (\d+\.?\d*)s", err_str)
-                                if match:
-                                    retry_wait = max(retry_wait, float(match.group(1)))
-                                time.sleep(5)
-                                continue
-                            elif "404" in err_str:
-                                continue
-                            else:
-                                st.error(f"Error: {e}")
-                                break
+                for model_name in models:
+                    try:
+                        chat = _genai_client.chats.create(
+                            model=model_name,
+                            config=genai_types.GenerateContentConfig(
+                                system_instruction=sys_instr,
+                                tools=[search_concerts, get_distance_to_venue, send_concert_sms,
+                                       get_venue_details, search_small_venue_calendar,
+                                       search_side_by_side, search_do512,
+                                       get_recent_setlist, make_gcal_url, get_presale_alerts,
+                                       add_venue_details, get_similar_artists,
+                                       get_artist_top_tracks],
+                            ),
+                            history=chat_history,
+                        )
+                        st.session_state.last_gemini_call = time.time()
+                        response = chat.send_message(user_input)
+                        raw_text = response.text or ""
+                        clean_text = re.sub(r'\$(.*?)\$', r'\1', raw_text)
+                        clean_text = clean_text.replace('—', ',').replace('–', ',')
 
-                    if not success:
-                        if retry_wait > 0:
-                            placeholder = st.empty()
-                            for i in range(int(retry_wait), 0, -1):
-                                placeholder.html(f'<div class="countdown-box">Quota cooldown: {i}s</div>')
-                                time.sleep(1)
-                            placeholder.empty()
-                            st.info("Cooldown complete. Try again.")
+                        _NEGATIVE = ("cannot find", "no results", "unable to find",
+                                     "couldn't find", "no upcoming", "no shows",
+                                     "no concerts", "no events", "check the spelling",
+                                     "don't have any information", "no information")
+                        if any(p in clean_text.lower() for p in _NEGATIVE):
+                            matched_events = []
                         else:
-                            st.error("All models busy. Try again in 60 seconds.")
+                            try:
+                                do512_evts = _fetch_do512()
+                                matched_events = _find_events_in_text(clean_text, do512_evts)
+                            except Exception:
+                                matched_events = []
 
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": clean_text,
+                            "events": matched_events,
+                        })
+                        if matched_events:
+                            st.session_state["agent_last_events"] = matched_events
+                        if db_uid:
+                            save_message(db_uid, "assistant", clean_text)
+                        success = True
+                        st.rerun()
+                        break
+                    except Exception as e:
+                        err_str = str(e)
+                        if "429" in err_str or "quota" in err_str.lower():
+                            match = re.search(r"retry in (\d+\.?\d*)s", err_str)
+                            if match:
+                                retry_wait = max(retry_wait, float(match.group(1)))
+                            time.sleep(5)
+                            continue
+                        elif "404" in err_str:
+                            continue
+                        else:
+                            st.error(f"Error: {e}")
+                            break
+
+                if not success:
+                    if retry_wait > 0:
+                        placeholder = st.empty()
+                        for i in range(int(retry_wait), 0, -1):
+                            placeholder.html(f'<div class="countdown-box">Quota cooldown: {i}s</div>')
+                            time.sleep(1)
+                        placeholder.empty()
+                        st.info("Cooldown complete. Try again.")
+                    else:
+                        st.error("All models busy. Try again in 60 seconds.")
+
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Clear Chat"):
+            st.session_state.messages = []
+            st.session_state.pop("agent_last_events", None)
+            uid = st.session_state.get("db_user_id")
+            if uid:
+                clear_chat_history(uid)
+            st.rerun()
+    with col2:
+        if st.button("Send Digest"):
+            from weekly_digest import send_digest
+            with st.spinner("Sending..."):
+                send_digest()
+                st.success("Sent!")
+
+
+# ========== MAIN CONTENT ==========
+tab_browse, tab_presales, tab_shows = st.tabs(["Browse Shows", "Presales", "My Shows"])
 
 # ---------- TAB: Browse Shows ----------
 with tab_browse:
+    # Latest from Agent — events surfaced in the most recent chat response
+    agent_evts = st.session_state.get("agent_last_events", [])
+    if agent_evts:
+        st.subheader("Latest from Agent")
+        for evt in agent_evts:
+            render_rich_card(evt, profile)
+        st.divider()
+
     with st.spinner("Loading upcoming shows..."):
         events = get_picks(CITY)
         try:
-            get_presale_alerts(CITY)  # warms the presale file cache for badge lookup
+            get_presale_alerts(CITY)  # warm presale cache for badge lookup
         except Exception:
             pass
 
@@ -652,13 +634,12 @@ with tab_browse:
                 "presale": _get_presale_info(name) if score > 0 else "",
             })
 
-        # Split into matched and all
         matched = [r for r in ranked if r['score'] > 0]
         matched.sort(key=lambda x: x['score'], reverse=True)
         unmatched = [r for r in ranked if r['score'] == 0]
         unmatched.sort(key=lambda x: x['date'] or '')
 
-        # "Because you saw" section — surface picks tied to attended shows
+        # "Because you saw" section
         _browse_uid = st.session_state.get("db_user_id")
         if _browse_uid:
             try:
@@ -731,7 +712,6 @@ with tab_shows:
     if not db_uid:
         st.info("Connect your Spotify account to track shows.")
     else:
-        # Attendance prompts
         unconfirmed = get_unconfirmed_clicks(db_uid, days_old=0)
         from datetime import date as date_type
         today = date_type.today()
@@ -762,7 +742,6 @@ with tab_shows:
                         st.rerun()
             st.divider()
 
-        # Show history
         st.subheader("Show History")
         past = get_past_shows(db_uid, limit=20)
         if past:
