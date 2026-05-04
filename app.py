@@ -436,48 +436,75 @@ with tab_chat:
     # Consume any queued quick-action query
     _pending_query = st.session_state.pop("_quick_query", None)
 
-    # Scrollable message pane
-    chat_pane = st.container(height=520, border=False)
-    with chat_pane:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"] or "")
-                if message["role"] == "assistant":
-                    for evt in message.get("events", []):
-                        render_rich_card(evt, profile)
-
-    # Auto-scroll to bottom
-    _components.html("""
-    <script>
-        (function() {
-            function scrollPane() {
-                var panes = window.parent.document.querySelectorAll(
-                    'section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] > div'
-                );
-                panes.forEach(function(el) {
-                    if (el.scrollHeight > el.clientHeight) { el.scrollTop = el.scrollHeight; }
-                });
-            }
-            setTimeout(scrollPane, 150);
-        })();
-    </script>
-    """, height=0)
-
-    # This Weekend quick action
+    # Weekend date calc (used by both empty state and button)
     _today = datetime.now()
     _dow = _today.weekday()
     _days_to_sat = (5 - _dow) if _dow <= 5 else 6
     _sat = _today + timedelta(days=_days_to_sat)
     _sun = _sat + timedelta(days=1)
     _weekend_label = f"This Weekend  —  {_sat.strftime('%b')} {_sat.day}-{_sun.day}"
-    if st.button(_weekend_label, key="btn_this_weekend"):
+
+    def _queue_weekend():
         st.session_state["_quick_query"] = (
             f"What are the best shows this weekend "
             f"({_sat.strftime('%B')} {_sat.day}-{_sun.day}) in Austin? "
             f"Search Ticketmaster, Do512, and Side By Side Shows. "
             f"Use start_date={_sat.strftime('%Y-%m-%d')} and end_date={_sun.strftime('%Y-%m-%d')}."
         )
-        st.rerun()
+
+    if st.session_state.messages:
+        # Scrollable message pane — only rendered when there's something to show
+        chat_pane = st.container(height=520, border=False)
+        with chat_pane:
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"] or "")
+                    if message["role"] == "assistant":
+                        for evt in message.get("events", []):
+                            render_rich_card(evt, profile)
+
+        # Auto-scroll to bottom
+        _components.html("""
+        <script>
+            (function() {
+                function scrollPane() {
+                    var panes = window.parent.document.querySelectorAll(
+                        'section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] > div'
+                    );
+                    panes.forEach(function(el) {
+                        if (el.scrollHeight > el.clientHeight) { el.scrollTop = el.scrollHeight; }
+                    });
+                }
+                setTimeout(scrollPane, 150);
+            })();
+        </script>
+        """, height=0)
+
+        if st.button(_weekend_label, key="btn_this_weekend"):
+            _queue_weekend()
+            st.rerun()
+
+    else:
+        # Empty state — visible prompts so the user knows what to ask
+        st.markdown("### What are you looking for?")
+        st.caption("Ask me about shows, artists, venues, or presale windows.")
+        st.write("")
+
+        _prompts = [
+            (_weekend_label, _queue_weekend),
+            ("What shows are at Mohawk this month?",
+             lambda: st.session_state.update({"_quick_query": "What shows are at Mohawk this month?"})),
+            ("Find me something like Khruangbin",
+             lambda: st.session_state.update({"_quick_query": "Find me something like Khruangbin playing in Austin"})),
+            ("Any presales open for my superfan artists?",
+             lambda: st.session_state.update({"_quick_query": "Are there any active or upcoming presales for my superfan artists?"})),
+        ]
+        cols = st.columns(2)
+        for i, (label, action) in enumerate(_prompts):
+            with cols[i % 2]:
+                if st.button(label, key=f"prompt_{i}", use_container_width=True):
+                    action()
+                    st.rerun()
 
     user_input = st.chat_input("Ask about a show, artist, or venue...") or _pending_query
     if user_input:
