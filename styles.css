@@ -301,19 +301,26 @@ h2, [data-testid="stSubheader"] {
     background: #F5F4F0 !important;
 }
 
-/* Chat input — sticky at bottom */
-[data-testid="stChatInput"] {
-    border-color: var(--border) !important;
-    position: sticky !important;
+/* Chat input — fixed to viewport bottom */
+[data-testid="stBottom"] {
+    position: fixed !important;
     bottom: 0 !important;
-    z-index: 100 !important;
+    left: 0 !important;
+    right: 0 !important;
     background-color: var(--bg) !important;
-    padding-bottom: 6px !important;
+    border-top: 1px solid var(--border) !important;
+    padding: 8px 4rem 14px !important;
+    z-index: 1000 !important;
 }
 
 [data-testid="stChatInput"] textarea {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.9rem !important;
+}
+
+/* Bottom padding so last message clears the fixed input bar */
+section[data-testid="stMain"] > div.block-container {
+    padding-bottom: 100px !important;
 }
 
 /* ---------- Buttons ---------- */

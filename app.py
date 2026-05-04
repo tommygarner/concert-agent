@@ -417,6 +417,9 @@ def _spotify_prompt():
     st.link_button("Connect Spotify", auth_url, use_container_width=True)
     st.caption("Read-only access. No data is stored on our servers.")
     if st.button("Skip for now", use_container_width=True):
+        # Fall back to the pre-ingested history profile if it exists
+        if Path("data/artist_profile.json").exists():
+            st.session_state["mode"] = "My History (Tommy)"
         st.rerun()
 
 if not st.session_state.get("sp_token") and not st.session_state.get("spotify_prompt_shown"):
@@ -453,36 +456,23 @@ with tab_chat:
         )
 
     if st.session_state.messages:
-        # Scrollable message pane — only rendered when there's something to show
-        chat_pane = st.container(height=520, border=False)
-        with chat_pane:
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"] or "")
-                    if message["role"] == "assistant":
-                        for evt in message.get("events", []):
-                            render_rich_card(evt, profile)
+        # Render messages inline — no fixed-height container.
+        # The page scrolls; the chat input is pinned to viewport bottom via CSS.
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"] or "")
+                if message["role"] == "assistant":
+                    for evt in message.get("events", []):
+                        render_rich_card(evt, profile)
 
-        # Auto-scroll to bottom
+        # Scroll the page to the bottom so the latest message is visible
         _components.html("""
         <script>
-            (function() {
-                function scrollPane() {
-                    var panes = window.parent.document.querySelectorAll(
-                        'section[data-testid="stMain"] [data-testid="stVerticalBlockBorderWrapper"] > div'
-                    );
-                    panes.forEach(function(el) {
-                        if (el.scrollHeight > el.clientHeight) { el.scrollTop = el.scrollHeight; }
-                    });
-                }
-                setTimeout(scrollPane, 150);
-            })();
+            setTimeout(function() {
+                window.parent.scrollTo(0, window.parent.document.body.scrollHeight);
+            }, 100);
         </script>
         """, height=0)
-
-        if st.button(_weekend_label, key="btn_this_weekend"):
-            _queue_weekend()
-            st.rerun()
 
     else:
         # Empty state — visible prompts so the user knows what to ask
